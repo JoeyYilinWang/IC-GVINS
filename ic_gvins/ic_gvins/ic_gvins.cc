@@ -171,7 +171,7 @@ GVINS::GVINS(const string &configfile, const string &outputpath, Drawer::Ptr dra
 // 该函数被用在FusionROS::imuCallback中，由于imu数据频率较高，因此该函数会被调用更多次
 bool GVINS::addNewImu(const IMU &imu) {
     if (imu_buffer_mutex_.try_lock()) { // 主线程获得imu_buffer_mutex_锁，其他线程无法使用该锁
-        if (imu.dt > (imudatadt_ * 1.5)) { // imu.dt为当前帧与前一帧的时间间隔。如果比1/200*1.5大，则说明有imu数据丢失
+        if (imu.dt > (imudatadt_ * 3)) { // imu.dt为当前帧与前一帧的时间间隔。如果比1/imudatarate * 3大，则说明有imu数据丢失
             LOGE << absl::StrFormat("Lost IMU data with at %0.3lf dt %0.3lf", imu.time, imu.dt);
             
             long cnts = lround(imu.dt / imudatadt_) - 1; // lround为四舍五入并转化为长整数
