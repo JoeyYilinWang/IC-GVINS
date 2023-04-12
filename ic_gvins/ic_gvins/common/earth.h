@@ -232,7 +232,7 @@ public:
 
     static Vector3d iewn(const Vector3d &origin, const Vector3d &local) {
         Vector3d global = local2global(origin, local);
-
+        
         return iewn(global[0]);
     }
 

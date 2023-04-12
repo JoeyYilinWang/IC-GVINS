@@ -47,7 +47,7 @@ public:
 
     // 地图
     void addNewFixedMappoint(Vector3d point) override;
-
+    
     void updateMap(const Eigen::Matrix4d &pose) override;
 
     // 跟踪图像

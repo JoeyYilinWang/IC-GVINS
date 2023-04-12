@@ -381,7 +381,7 @@ bool MISC::detectZeroVelocity(const vector<IMU> &imu_buffer, double imudatarate,
         average[4] += imu.dvel.y();
         average[5] += imu.dvel.z();
     }
-
+    
     average[0] *= size_invert;
     average[1] *= size_invert;
     average[2] *= size_invert;
@@ -400,8 +400,8 @@ bool MISC::detectZeroVelocity(const vector<IMU> &imu_buffer, double imudatarate,
     }
 
     // 速率形式
-    std[0] = sqrt(sum[0] * size_invert) * imudatarate;
-    std[1] = sqrt(sum[1] * size_invert) * imudatarate;
+    std[0] = sqrt(sum[0] * size_invert) * imudatarate; // 等价于standard deviation * imudatarate
+    std[1] = sqrt(sum[1] * size_invert) * imudatarate;  
     std[2] = sqrt(sum[2] * size_invert) * imudatarate;
     std[3] = sqrt(sum[3] * size_invert) * imudatarate;
     std[4] = sqrt(sum[4] * size_invert) * imudatarate;

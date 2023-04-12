@@ -53,7 +53,7 @@ public:
 
         return static_cast<PreintegrationOptions>(options);
     }
-
+    
     static std::shared_ptr<PreintegrationBase>
         createPreintegration(const std::shared_ptr<IntegrationParameters> &parameters, const IMU &imu0,
                              const IntegrationState &state, PreintegrationOptions options) {

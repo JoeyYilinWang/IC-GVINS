@@ -103,13 +103,13 @@ IMU PreintegrationBase::compensationScale(const IMU &imu) const {
 
 void PreintegrationBase::stateToData(const IntegrationState &state, IntegrationStateData &data) {
     data.time = state.time;
+    
+    memcpy(data.pose, state.p.data(), sizeof(double) * 3); // 位置
+    memcpy(data.pose + 3, state.q.coeffs().data(), sizeof(double) * 4); // 姿态四元数
 
-    memcpy(data.pose, state.p.data(), sizeof(double) * 3);
-    memcpy(data.pose + 3, state.q.coeffs().data(), sizeof(double) * 4);
-
-    memcpy(data.mix, state.v.data(), sizeof(double) * 3);
-    memcpy(data.mix + 3, state.bg.data(), sizeof(double) * 3);
-    memcpy(data.mix + 6, state.ba.data(), sizeof(double) * 3);
+    memcpy(data.mix, state.v.data(), sizeof(double) * 3); // velocity
+    memcpy(data.mix + 3, state.bg.data(), sizeof(double) * 3); // gyro bias
+    memcpy(data.mix + 6, state.ba.data(), sizeof(double) * 3); // acc bias
 }
 
 void PreintegrationBase::stateFromData(const IntegrationStateData &data, IntegrationState &state) {

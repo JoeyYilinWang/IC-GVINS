@@ -44,8 +44,8 @@
 #include <yaml-cpp/yaml.h>
 
 GVINS::GVINS(const string &configfile, const string &outputpath, Drawer::Ptr drawer) {
-    gvinsstate_ = GVINS_ERROR;
-
+    gvinsstate_ = GVINS_ERROR; // 设定初始状态
+    
     // 加载配置
     // Load configuration
     YAML::Node config;
@@ -76,10 +76,11 @@ GVINS::GVINS(const string &configfile, const string &outputpath, Drawer::Ptr dra
     ofconfig << YAML::Dump(config);
     ofconfig.close();
 
+    // 初始化长度
     initlength_       = config["initlength"].as<int>();
     imudatarate_      = config["imudatarate"].as<double>();
     imudatadt_        = 1.0 / imudatarate_;
-    reserved_ins_num_ = 2;
+    reserved_ins_num_ = 2; // 跟机械编排算法有关
 
     // 安装参数
     // Installation parameters
@@ -98,7 +99,7 @@ GVINS::GVINS(const string &configfile, const string &outputpath, Drawer::Ptr dra
 
     integration_config_.iswithearth = config["iswithearth"].as<bool>();
     integration_config_.isuseodo    = false;
-    integration_config_.iswithscale = false;
+    integration_config_.iswithscale = false; 
     integration_config_.gravity     = {0, 0, integration_parameters_->gravity};
 
     // 初始值, 后续根据GNSS定位实时更新
@@ -106,7 +107,8 @@ GVINS::GVINS(const string &configfile, const string &outputpath, Drawer::Ptr dra
     integration_config_.origin.setZero();
     last_gnss_.blh.setZero();
     gnss_.blh.setZero();
-
+    
+    // 预积分选项配置
     preintegration_options_ = Preintegration::getOptions(integration_config_);
 
     // 相机参数
@@ -158,20 +160,21 @@ GVINS::GVINS(const string &configfile, const string &outputpath, Drawer::Ptr dra
     }
     tracking_ = std::make_shared<Tracking>(camera_, map_, drawer_, configfile, outputpath);
 
-    // Process threads
+    // Process threads，设置3个线程分别是融合线程、跟踪线程、优化线程
     fusion_thread_       = std::thread(&GVINS::runFusion, this);
     tracking_thread_     = std::thread(&GVINS::runTracking, this);
     optimization_thread_ = std::thread(&GVINS::runOptimization, this);
 
-    gvinsstate_ = GVINS_INITIALIZING;
+    gvinsstate_ = GVINS_INITIALIZING; // 初始化状态设置完成
 }
 
+// 该函数被用在FusionROS::imuCallback中，由于imu数据频率较高，因此该函数会被调用更多次
 bool GVINS::addNewImu(const IMU &imu) {
-    if (imu_buffer_mutex_.try_lock()) {
-        if (imu.dt > (imudatadt_ * 1.5)) {
+    if (imu_buffer_mutex_.try_lock()) { // 主线程获得imu_buffer_mutex_锁，其他线程无法使用该锁
+        if (imu.dt > (imudatadt_ * 1.5)) { // imu.dt为当前帧与前一帧的时间间隔。如果比1/200*1.5大，则说明有imu数据丢失
             LOGE << absl::StrFormat("Lost IMU data with at %0.3lf dt %0.3lf", imu.time, imu.dt);
-
-            long cnts = lround(imu.dt / imudatadt_) - 1;
+            
+            long cnts = lround(imu.dt / imudatadt_) - 1; // lround为四舍五入并转化为长整数
 
             IMU imudata  = imu;
             imudata.time = imu.time - imu.dt;
@@ -187,9 +190,11 @@ bool GVINS::addNewImu(const IMU &imu) {
 
         // 释放信号量
         // Release fusion semaphore
-        fusion_sem_.notify_one();
-
-        imu_buffer_mutex_.unlock();
+        fusion_sem_.notify_one(); // 等到imu_buffer_有imu数据压入时唤醒其他等待线程
+        
+        // 把imu_buffer_mutex_锁归还
+        // 归还之后，addNewImu有可能还能抢到该锁，因此在被其他进程抢到锁之前，imu_buffer_里存储数据的数量是不固定的。
+        imu_buffer_mutex_.unlock(); 
         return true;
     }
 
@@ -213,6 +218,7 @@ bool GVINS::addNewGnss(const GNSS &gnss) {
     }
 
     gnss_        = gnss;
+    // 此时gnss_blh已被转化为局部坐标系坐标了，坐标原点为integration_config_.origin
     gnss_.blh    = Earth::global2local(integration_config_.origin, gnss_.blh);
     isgnssready_ = true;
 
@@ -221,12 +227,12 @@ bool GVINS::addNewGnss(const GNSS &gnss) {
 
 bool GVINS::addNewFrame(const Frame::Ptr &frame) {
     if (gvinsstate_ > GVINS_INITIALIZING_INS) {
-        if (frame_buffer_mutex_.try_lock()) {
-            frame_buffer_.push(frame);
-
+        if (frame_buffer_mutex_.try_lock()) { // 主线程尝试拿到frame_buffer_mutex_锁
+            frame_buffer_.push(frame); 
+            
             tracking_sem_.notify_one();
 
-            frame_buffer_mutex_.unlock();
+            frame_buffer_mutex_.unlock(); // 主线程释放锁
             return true;
         }
         return false;
@@ -240,35 +246,41 @@ void GVINS::runFusion() {
     Frame::Ptr frame;
 
     LOGI << "Fusion thread is started";
-    while (!isfinished_) { // While
-        Lock lock(fusion_mutex_);
-        fusion_sem_.wait(lock);
+    while (!isfinished_) { 
+        Lock lock(fusion_mutex_); // 取得fusion_mutex_锁
 
+        // 释放锁，线程陷入阻塞状态，等待唤醒（addNewImu函数体的代码末端使用fusion_sem_进行通知）
+        // 其目的是等待主线程中的addNewImu往imu_buffer_里存好数据
+        // addNewImu每成功存储一条imu数据就发送fusion_sem_信号，同时释放imu_buffer_mutex_锁
+        fusion_sem_.wait(lock); 
+        
         // 获取所有有效数据
         // Process all IMU data
         while (!imu_buffer_.empty()) { // IMU BUFFER
+
             // 读取IMU缓存
             // Load an IMU sample
             {
-                Lock lock2(imu_buffer_mutex_);
-                imu_pre = imu_cur;
-                imu_cur = imu_buffer_.front();
-                imu_buffer_.pop();
-            }
+                Lock lock2(imu_buffer_mutex_); // 该线程获得addNewImu释放的imu_buffer_mutex_，也就说明在该代码段的执行阶段，addNewImu无法运行
+                imu_pre = imu_cur;  // 第一遍循环时两者都还未初始化
+                imu_cur = imu_buffer_.front(); // 取imu_buffer_最前面的元素
+                imu_buffer_.pop(); //将最前元素弹出
+            } 
+            // 释放imu_buffer_mutex_锁，addNewImu又可以往imu_buffer_里添加数据了
 
             // INS机械编排及INS处理
             // INS mechanization
             { // INS
                 Lock lock3(ins_mutex_);
-                if (!ins_window_.empty()) {
+                if (!ins_window_.empty()) { // 首次到这时，ins_window_是空的
                     // 上一时刻的状态
                     // The INS state in last time for mechanization
                     state = ins_window_.back().second;
                 }
-                ins_window_.emplace_back(imu_cur, IntegrationState());
-
+                ins_window_.emplace_back(imu_cur, IntegrationState()); 
+                
                 // 初始化完成后开始积分输出
-                if (gvinsstate_ > GVINS_INITIALIZING) {
+                if (gvinsstate_ > GVINS_INITIALIZING) { // gvinsstate_的初始值为GVINS_INITIALZING
                     if (isoptimized_ && state_mutex_.try_lock()) {
                         // 优化求解结束, 需要更新IMU误差重新积分
                         // When the optimization is finished
@@ -288,14 +300,18 @@ void GVINS::runFusion() {
                 } else {
                     // Only reserve certain INS in the window during initialization
                     if (ins_window_.size() > MAXIMUM_INS_NUMBER) {
-                        ins_window_.pop_front();
+                        ins_window_.pop_front(); // 在ins_window_中元素个数没达到最大前，该语句不会执行。
                     }
                 }
-
+                
                 // 融合状态
                 // Fusion process
                 if (gvinsstate_ == GVINS_INITIALIZING) {
-                    if (isgnssready_ && state_mutex_.try_lock()) {
+                
+                    // isgnssready_初始为false，只有当addNewGnss成功执行后才会变为true
+                    // 看addNewGnss代码可知，GNSS信号为低频信号，无需加锁使用，因此addNewGnss的代码段一直处于非阻塞状态
+                    // 在isgnssready_置为true之前，由于IMU高频的特性，使得ins_window_已经保存了很多IMU数据了
+                    if (isgnssready_ && state_mutex_.try_lock()) { 
                         // 初始化参数
                         // GVINS initialization using GNSS/INS initialization
                         if (gvinsInitialization()) {
@@ -586,17 +602,17 @@ bool GVINS::gvinsInitialization() {
     if ((gnss_.time == 0) || (last_gnss_.time == 0)) {
         return false;
     }
-
+    
     // 缓存数据用于零速检测
     // Buffer for zero-velocity detection
     vector<IMU> imu_buff;
     for (const auto &ins : ins_window_) {
         auto &imu = ins.first;
-        if ((imu.time > last_gnss_.time) && (imu.time < gnss_.time)) {
+        if ((imu.time > last_gnss_.time) && (imu.time < gnss_.time)) { // 仅处理前后两帧GNSS数据间的IMU数据
             imu_buff.push_back(imu);
         }
     }
-    if (imu_buff.size() < 20) {
+    if (imu_buff.size() < 20) { // 需要20条IMU数据
         return false;
     }
 
@@ -605,48 +621,56 @@ bool GVINS::gvinsInitialization() {
     vector<double> average;
     static Vector3d bg{0, 0, 0};
     static Vector3d initatt{0, 0, 0};
-    static bool is_has_zero_velocity = false;
+    static bool is_has_zero_velocity = false; // 初始化是否零速状态量为false
 
+    // 使用检测零速状态函数检测零速状态，仅使用IMU数据进行检测
+    // 输入为前后两帧GNSS数据之间的IMU数据，imu的频率，输出为判断零速状态的bool值以及imu的速度差值平均值和角度差值平均值
     bool is_zero_velocity = MISC::detectZeroVelocity(imu_buff, imudatarate_, average);
     if (is_zero_velocity) {
         // 陀螺零偏
-        bg = Vector3d(average[0], average[1], average[2]);
-        bg *= imudatarate_;
+        bg = Vector3d(average[0], average[1], average[2]); 
+        bg *= imudatarate_; // 转化为以s为单位
 
         // 重力调平获取横滚俯仰角
-        Vector3d fb(average[3], average[4], average[5]);
-        fb *= imudatarate_;
+        Vector3d fb(average[3], average[4], average[5]); // 计算imu_buff中前后两帧的速度差平均值
+        fb *= imudatarate_; // 转化为s为单位，实际上就是加速度值，因为当前是零速状态，所以加速度主要体现在重力上
 
-        initatt[0] = -asin(fb[1] / integration_parameters_->gravity);
-        initatt[1] = asin(fb[0] / integration_parameters_->gravity);
+        // roll和pitch都是围绕重力方向计算的，与欧拉角有共同点么？
+        initatt[0] = -asin(fb[1] / integration_parameters_->gravity); // roll
+        initatt[1] = asin(fb[0] / integration_parameters_->gravity); // pitch 
 
+        // 将gyro/s转化为gyro/h，并将弧度转化为角度
         LOGI << "Zero velocity get gyroscope bias " << bg.transpose() * 3600 * R2D << ", roll " << initatt[0] * R2D
              << ", pitch " << initatt[1] * R2D;
-        is_has_zero_velocity = true;
+        is_has_zero_velocity = true; 
     }
 
     // 非零速状态
     // Initialization conditions
-    if (!is_zero_velocity) {
+    if (!is_zero_velocity) 
+    {
+        // 上一帧的yaw估计可用的话就可以直接使用
         if (last_gnss_.isyawvalid) {
             initatt[2] = last_gnss_.yaw;
             LOGI << "Initialized heading from dual-antenna GNSS as " << initatt[2] * R2D << " deg";
         } else {
-            Vector3d vel = gnss_.blh - last_gnss_.blh;
-            if (vel.norm() < MINMUM_ALIGN_VELOCITY) {
+            Vector3d vel = gnss_.blh - last_gnss_.blh; // 因为GNSS以秒为计数，所以前后两帧的差直接就表示速度
+            if (vel.norm() < MINMUM_ALIGN_VELOCITY) { 
                 return false;
             }
-
+            // 这个判断语句感觉没有必要，因为能走到这时，is_has_zero_velocity必然是false
             if (!is_has_zero_velocity) {
-                initatt[0] = 0;
-                initatt[1] = atan(-vel.z() / sqrt(vel.x() * vel.x() + vel.y() * vel.y()));
+                initatt[0] = 0; // 非零速状态无法估计roll，所以暂时设为0
+                initatt[1] = atan(-vel.z() / sqrt(vel.x() * vel.x() + vel.y() * vel.y())); // 非零速状态可以估计pitch
                 LOGI << "Initialized pitch from GNSS as " << initatt[1] * R2D << " deg";
             }
-            initatt[2] = atan2(vel.y(), vel.x());
+            initatt[2] = atan2(vel.y(), vel.x()); // 非零速状态可以估计绝对航向
             LOGI << "Initialized heading from GNSS as " << initatt[2] * R2D << " deg";
         }
-    } else {
-        return false;
+    } 
+    else {
+        // 当IMU处于零速状态时直接就返回false了，不再执行下面的代码
+        return false; 
     }
 
     // 从零速开始
@@ -655,8 +679,8 @@ bool GVINS::gvinsInitialization() {
     // 初始状态, 从上一秒开始
     // The initialization state
     auto state = IntegrationState{
-        .time = last_gnss_.time,
-        .p    = last_gnss_.blh - Rotation::euler2quaternion(initatt) * antlever_,
+        .time = last_gnss_.time, // 将积分状态的时间戳设置为上一帧GNSS数据的时间戳
+        .p    = last_gnss_.blh - Rotation::euler2quaternion(initatt) * antlever_, // GNSS接收机位置转换到body上的位置
         .q    = Rotation::euler2quaternion(initatt),
         .v    = velocity,
         .bg   = bg,
@@ -665,18 +689,23 @@ bool GVINS::gvinsInitialization() {
         .sg   = {0, 0, 0},
         .sa   = {0, 0, 0},
     };
+
+    // 将IntegrationState转化为IntegrationStateData，两者存的内容一样只是形式不同
     statedatalist_.emplace_back(Preintegration::stateToData(state, preintegration_options_));
     gnsslist_.push_back(last_gnss_);
     timelist_.push_back(last_gnss_.time);
-    constructPrior(is_has_zero_velocity);
+
+    // 能运行到这的条件就是is_has_zero_velocity必定为false
+    // 构建相关初始值
+    constructPrior(is_has_zero_velocity); 
 
     // 初始化重力和地球自转参数
     // The gravity and the Earth rotation rate
     integration_config_.gravity = Vector3d(0, 0, integration_parameters_->gravity);
-    if (integration_config_.iswithearth) {
-        integration_config_.iewn = Earth::iewn(integration_config_.origin, state.p);
+    if (integration_config_.iswithearth) { // 考虑地球自转补偿
+        integration_config_.iewn = Earth::iewn(integration_config_.origin, state.p); 
     }
-
+    
     // 计算第一秒的INS结果
     // Redo INS mechanization at the first second
     state = Preintegration::stateFromData(statedatalist_.back(), preintegration_options_);
@@ -1913,8 +1942,8 @@ void GVINS::constructPrior(bool is_zero_velocity) {
     double att_prior_std  = 0.5 * D2R;                                 // 0.5 deg
     double vel_prior_std  = 0.1;                                       // 0.1 m/s
     double bg_prior_std   = integration_parameters_->gyr_bias_std * 3; // Bias std * 3
-    double ba_prior_std   = ACCELEROMETER_BIAS_PRIOR_STD;              // 20000 mGal
-    double sodo_prior_std = 0.005;                                     // 5000 PPM
+    double ba_prior_std   = ACCELEROMETER_BIAS_PRIOR_STD;              // 20000 mGal，（mGal为毫伽重力加速度单位，量纲为厘米/s^2）
+    double sodo_prior_std = 0.005;                                     // 5000 PPM，PPM为百万分之一
 
     if (!is_zero_velocity) {
         bg_prior_std = GYROSCOPE_BIAS_PRIOR_STD; // 7200 deg/hr
@@ -1922,7 +1951,7 @@ void GVINS::constructPrior(bool is_zero_velocity) {
 
     memcpy(pose_prior_, statedatalist_[0].pose, sizeof(double) * 7);
     memcpy(mix_prior_, statedatalist_[0].mix, sizeof(double) * 18);
-    for (size_t k = 0; k < 3; k++) {
+    for (size_t k = 0; k < 3; k++) { // 无论是位置、姿态还是速度都是三维的，因此在每个维度上都附上相同的先验标准差
         pose_prior_std_[k + 0] = pos_prior_std;
         pose_prior_std_[k + 3] = att_prior_std;
 
@@ -1930,7 +1959,7 @@ void GVINS::constructPrior(bool is_zero_velocity) {
         mix_prior_std_[k + 3] = bg_prior_std;
         mix_prior_std_[k + 6] = ba_prior_std;
     }
-    pose_prior_std_[5] = att_prior_std * 3; // heading
-    mix_prior_std_[9]  = sodo_prior_std;
+    pose_prior_std_[5] = att_prior_std * 3; // heading，最后一维即yawn为什么乘3倍？
+    mix_prior_std_[9]  = sodo_prior_std; 
     is_use_prior_      = true;
 }

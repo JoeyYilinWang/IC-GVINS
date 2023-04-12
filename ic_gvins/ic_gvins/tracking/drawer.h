@@ -34,7 +34,7 @@ public:
     typedef std::shared_ptr<Drawer> Ptr;
 
     virtual ~Drawer() = default;
-
+    
     virtual void run()         = 0;
     virtual void setFinished() = 0;
 

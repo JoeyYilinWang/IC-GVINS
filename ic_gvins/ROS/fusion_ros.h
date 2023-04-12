@@ -51,7 +51,9 @@ private:
     void imageCallback(const sensor_msgs::ImageConstPtr &imagemsg);
 
 private:
-    std::shared_ptr<GVINS> gvins_;
+
+    // 所有传感器数据被融合计算的地方
+    std::shared_ptr<GVINS> gvins_; 
 
     IMU imu_{.time = 0}, imu_pre_{.time = 0};
     Frame::Ptr frame_;
@@ -60,7 +62,7 @@ private:
     bool isusegnssoutage_{false};
     double gnssoutagetime_{0};
     double gnssthreshold_{20.0};
-
+    
     std::queue<IMU> imu_buffer_;
     std::queue<Frame::Ptr> frame_buffer_;
 };

@@ -45,15 +45,15 @@ class GVINS {
 
 public:
     enum GVINSState {
-        GVINS_ERROR                 = -1,
-        GVINS_INITIALIZING          = 0,
-        GVINS_INITIALIZING_INS      = 1,
-        GVINS_INITIALIZING_VIO      = 2,
-        GVINS_TRACKING_INITIALIZING = 3,
-        GVINS_TRACKING_NORMAL       = 4,
-        GVINS_TRACKING_LOST         = 5,
+        GVINS_ERROR                 = -1, // GVINS错误状态
+        GVINS_INITIALIZING          = 0, // GVINS初始化进程开启
+        GVINS_INITIALIZING_INS      = 1, // GVINS初始化inertial navigation system
+        GVINS_INITIALIZING_VIO      = 2, // GVINS初始化visual inertial odometry 
+        GVINS_TRACKING_INITIALIZING = 3, // GVINS初始化跟踪模块
+        GVINS_TRACKING_NORMAL       = 4, // GVINS普通跟踪过程
+        GVINS_TRACKING_LOST         = 5, // GVINS跟踪丢失
     };
-
+    
     typedef std::shared_ptr<GVINS> Ptr;
     typedef std::unique_lock<std::mutex> Lock;
 
@@ -69,15 +69,15 @@ public:
     bool isRunning() const {
         return !isfinished_;
     }
-
+    
     GVINSState gvinsState() const {
         return gvinsstate_;
     }
 
 private:
     void parametersStatistic();
-
-    bool gvinsInitialization();
+    
+    bool gvinsInitialization(); 
     bool gvinsInitializationOptimization();
 
     void addNewTimeNode(double time);
@@ -180,7 +180,7 @@ private:
 
     std::atomic<bool> isoptimized_{false};
     std::atomic<bool> isfinished_{false};
-    std::atomic<bool> isgnssready_{false};
+    std::atomic<bool> isgnssready_{false}; 
     std::atomic<bool> isframeready_{false};
     std::atomic<bool> isgnssobs_{false};
     std::atomic<bool> isvisualobs_{false};

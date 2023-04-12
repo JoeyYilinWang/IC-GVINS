@@ -56,7 +56,7 @@ reprojection_error_std: 1.5         # 像素重投影误差 (The reprojection er
 optimize_windows_size: 10           # 滑动窗口大小 (The size of the sliding window, number of the keyframes )
 optimize_num_iterations: 20         # 优化迭代次数 (The iterations in total)
 optimize_estimate_extrinsic: true   # 是否估计相机和IMU的外参 (Estimate the extrinsic)
-optimize_estimate_td: true          # 否估计相机和IMU之间的时间间隔 (Estimate the time delay)
+optimize_estimate_td: true          # 是否估计相机和IMU之间的时间间隔 (Estimate the time delay)
 
 # Camera parameters
 cam0:

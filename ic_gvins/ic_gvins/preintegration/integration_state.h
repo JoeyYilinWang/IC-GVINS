@@ -35,19 +35,19 @@ using std::vector;
 typedef struct IntegrationState {
     double time;
 
-    Vector3d p{0, 0, 0};
-    Quaterniond q{0, 0, 0, 0};
-    Vector3d v{0, 0, 0};
+    Vector3d p{0, 0, 0}; // position 
+    Quaterniond q{0, 0, 0, 0}; // rotation in quaternions
+    Vector3d v{0, 0, 0}; // velocity
 
-    Vector3d bg{0, 0, 0};
-    Vector3d ba{0, 0, 0};
+    Vector3d bg{0, 0, 0}; // gyro bias
+    Vector3d ba{0, 0, 0}; // acc bias
+    
+    Vector3d s{0, 0, 0}; // unknown
+    double sodo{0}; // odometry scale factor
+    Vector2d avb{0, 0}; // What is it?
 
-    Vector3d s{0, 0, 0};
-    double sodo{0};
-    Vector2d avb{0, 0};
-
-    Vector3d sg{0, 0, 0};
-    Vector3d sa{0, 0, 0};
+    Vector3d sg{0, 0, 0}; // gyro scale factor
+    Vector3d sa{0, 0, 0}; // acc scale factor
 } IntegrationState;
 
 typedef struct IntegrationStateData {
@@ -62,7 +62,7 @@ typedef struct IntegrationStateData {
     // vel + bias + scale : 3 + 6 + 6 = 15
     // vel + bias + sodo + scale : 3 + 6 + 1 + 6 = 16
     // vel + bias + sodo + scale + abv : 3 + 6 + 1 + 6 + 2 = 18
-    double mix[18];
+    double mix[18]; // unknown
 } IntegrationStateData;
 
 typedef struct IntegrationParameters {
@@ -89,13 +89,13 @@ typedef struct IntegrationParameters {
 } IntegrationParameters;
 
 typedef struct IntegrationConfiguration {
-    bool isuseodo;
-    bool iswithscale;
-    bool iswithearth;
+    bool isuseodo; // 是否使用里程计
+    bool iswithscale; // unknown
+    bool iswithearth; // 是否伴随地球
 
-    Vector3d origin; // 站心原点
-    Vector3d gravity;
-    Vector3d iewn;
-} IntegrationConfiguration;
+    Vector3d origin; // 站心原点坐标，本质上是ENU坐标系原点在世界坐标系下坐标，是不断移动的
+    Vector3d gravity; // 重力
+    Vector3d iewn; // 地球自转角速度投影到n系
+}  IntegrationConfiguration;
 
 #endif // INTEGRATION_DEFINE_H
