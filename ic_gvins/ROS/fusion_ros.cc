@@ -55,6 +55,7 @@ void FusionROS::run() {
 
     // message topic
     string imu_topic, gnss_topic, image_topic, livox_topic;
+    // 从parameters库中读取参数，没有的话使用默认值。
     pnh.param<string>("imu_topic", imu_topic, "/imu0");  
     pnh.param<string>("gnss_topic", gnss_topic, "/gnss0");
     pnh.param<string>("image_topic", image_topic, "/cam0");
@@ -114,7 +115,7 @@ void FusionROS::run() {
     // subscribe message
     // 同一个节点订阅不同的topic，不同topic产生不同消息，并存放在各自的队列中，各消息队列都对应各自回调函数地址
     // 在没有特殊操作下，节点调用回调函数是单线程的
-    // 有些特殊操作是允许节点以多线程方式操作不同回调函数的
+    // 有些特殊操作是允许节点以多线程方式操作不同回调函数的，但这里不涉及
     ros::Subscriber imu_sub   = nh.subscribe<sensor_msgs::Imu>(imu_topic, 200, &FusionROS::imuCallback, this);
     ros::Subscriber gnss_sub  = nh.subscribe<sensor_msgs::NavSatFix>(gnss_topic, 1, &FusionROS::gnssCallback, this);
     ros::Subscriber image_sub = nh.subscribe<sensor_msgs::Image>(image_topic, 20, &FusionROS::imageCallback, this);
@@ -128,7 +129,6 @@ void FusionROS::run() {
 // 由于imu消息提供频率很快，因此相同时间内会被调用更多次
 void FusionROS::imuCallback(const sensor_msgs::ImuConstPtr &imumsg) {
     imu_pre_ = imu_;
-
     // Time convertion，将晶振时间转化为秒
     double unixsecond = imumsg->header.stamp.toSec();
     double weeksec;
@@ -145,37 +145,37 @@ void FusionROS::imuCallback(const sensor_msgs::ImuConstPtr &imumsg) {
     imu_.dtheta[2] = imumsg->angular_velocity.z * imu_.dt;
     imu_.dvel[0]   = imumsg->linear_acceleration.x * imu_.dt;
     imu_.dvel[1]   = imumsg->linear_acceleration.y * imu_.dt;
-    imu_.dvel[2]   = imumsg->linear_acceleration.z * imu_.dt;
+    imu_.dvel[2]   = imumsg->linear_acceleration.z * imu_.dt; 
 
     // 此时当前时刻的imu_数据是imumsg经过转化的数据了
 
     // Not ready
-    if (imu_pre_.time == 0) {
+    if (imu_pre_.time == 0) { // 一般情况下周秒不可能为0，所以若为0则表示还未准备好，这里直接返回。
         return;
     }
-
+    
     imu_buffer_.push(imu_); // imu_buffer_存储imu当前数据imu_
     while (!imu_buffer_.empty()) {
         auto imu = imu_buffer_.front(); // 取最前面的imu数据，实际上就是刚才压入的IMU数据
         
         // Add new IMU to GVINS
         if (gvins_->addNewImu(imu)) { // 将队列最前的IMU数据输入到gvins中处理
-            imu_buffer_.pop(); // 删除最前的IMU元素，此时imu_buffer_为空。本质上imu_buffer_永远只存一个元素
+            imu_buffer_.pop(); // 如果gvins成功读入该数据则把该数据pop出来
         } else {
             // Thread lock failed, try next time
-            break;
+            break; // 如果gvins模块没有成功得到该imu数据，则重来一遍
         }
     }
 }
 
 void FusionROS::gnssCallback(const sensor_msgs::NavSatFixConstPtr &gnssmsg) {
     // Time convertion
-    double unixsecond = gnssmsg->header.stamp.toSec(); 
+    double unixsecond = gnssmsg->header.stamp.toSec(); // gnssmsg中提供的时间也是unix时间计时的
     double weeksec;
     int week;
     GpsTime::unix2gps(unixsecond, week, weeksec);
 
-    gnss_.time = weeksec;
+    gnss_.time = weeksec; // 将gnss数据时间设置为GNSS周时
 
     gnss_.blh[0] = gnssmsg->latitude * D2R; // 纬度转化为弧度
     gnss_.blh[1] = gnssmsg->longitude * D2R; // 经度转化为弧度
@@ -196,10 +196,11 @@ void FusionROS::gnssCallback(const sensor_msgs::NavSatFixConstPtr &gnssmsg) {
     // Remove bad GNSS
     bool isoutage = false;
 
-    // 只有不确定性小于阈值才考虑
+    // 只有不确定性小于阈值了才说明当前gnss数据是可靠的
     if ((gnss_.std[0] < gnssthreshold_) && (gnss_.std[1] < gnssthreshold_) && (gnss_.std[2] < gnssthreshold_)) {
 
-        if (isusegnssoutage_ && (weeksec >= gnssoutagetime_)) { // 周秒为什么会可能大于gnsstagetime?
+        // 在配置文件中已经将isusegnssoutage_设置为false，因此该代码段是没用的。
+        if (isusegnssoutage_ && (weeksec >= gnssoutagetime_)) { 
             isoutage = true;
         }
 
@@ -212,7 +213,6 @@ void FusionROS::gnssCallback(const sensor_msgs::NavSatFixConstPtr &gnssmsg) {
 
 void FusionROS::imageCallback(const sensor_msgs::ImageConstPtr &imagemsg) {
     Mat image;
-
     // Copy image data
     if (imagemsg->encoding == sensor_msgs::image_encodings::MONO8) {
         image = Mat(static_cast<int>(imagemsg->height), static_cast<int>(imagemsg->width), CV_8UC1);
@@ -220,6 +220,7 @@ void FusionROS::imageCallback(const sensor_msgs::ImageConstPtr &imagemsg) {
     } else if (imagemsg->encoding == sensor_msgs::image_encodings::BGR8) {
         image = Mat(static_cast<int>(imagemsg->height), static_cast<int>(imagemsg->width), CV_8UC3);
         memcpy(image.data, imagemsg->data.data(), imagemsg->height * imagemsg->width * 3);
+        // ROS_INFO("image is RGB format");
     }
 
     // Time convertion
@@ -233,9 +234,11 @@ void FusionROS::imageCallback(const sensor_msgs::ImageConstPtr &imagemsg) {
     
     frame_buffer_.push(frame_);
     while (!frame_buffer_.empty()) {
+        // ROS_INFO("frame_buffer size is: %ld", frame_buffer_.size()); 
         auto frame = frame_buffer_.front();
         if (gvins_->addNewFrame(frame)) {
             frame_buffer_.pop();
+            // ROS_INFO("After pop operation, frame buffer size is: %ld", frame_buffer_.size()); 
         } else {
             break;
         }
@@ -283,7 +286,7 @@ int main(int argc, char *argv[]) {
 
     auto fusion = std::make_shared<FusionROS>(); // FusionROS的构造函数是DEFAULT
 
-    // Check thread
+    // Check thread，该线程一直在运行，时刻监控是否接收到中断信号。若受到中断信号，直接关闭ROS。
     std::thread check_thread(checkStateThread, fusion); 
 
     // 这里没有用到check_thread.join()，join()函数表示主函数阻塞，等待该线程运行完成。

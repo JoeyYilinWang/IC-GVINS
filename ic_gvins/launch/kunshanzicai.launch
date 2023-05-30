@@ -3,8 +3,8 @@
 
     <node name="ic_gvins_node" pkg="ic_gvins" type="ic_gvins_ros" output="screen">
         <param name="imu_topic" value="/mavros/imu/data"/>
-        <param name="gnss_topic" value="/mavros/global_position/global"/>
-        <param name="image_topic" value="/image_raw1/compressed"/>
+        <param name="gnss_topic" value="/gps0"/>
+        <param name="image_topic" value="/image0"/>
 
         <param name="configfile" value="$(arg configfile)"/>
     </node>

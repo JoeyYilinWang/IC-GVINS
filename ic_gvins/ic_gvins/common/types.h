@@ -48,11 +48,11 @@ typedef struct PVA {
 } PVA;
 
 typedef struct IMU {
-    double time;
-    double dt;
+    double time; // imu的GNSS时间
+    double dt; // 与前一帧imu数据的时间差
 
-    Vector3d dtheta;
-    Vector3d dvel;
+    Vector3d dtheta; // 角度增量
+    Vector3d dvel; // 速度增量
 
     double odovel;
 } IMU;

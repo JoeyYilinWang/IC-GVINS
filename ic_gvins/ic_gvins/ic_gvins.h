@@ -121,7 +121,7 @@ private:
 
     // INS窗口内的最大数量, 对于200Hz, 保留5秒数据
     // Maximum INS data in the window
-    const size_t MAXIMUM_INS_NUMBER = 1000;
+    const size_t MAXIMUM_INS_NUMBER = 500;
 
     // 动态航向初始的最小速度
     // Minimum velocity for GNSS/INS intializaiton
@@ -155,7 +155,7 @@ private:
     // Marginalization variables
     std::shared_ptr<MarginalizationInfo> last_marginalization_info_{nullptr};
     std::vector<double *> last_marginalization_parameter_blocks_;
-
+    
     // 先验
     // The prior
     bool is_use_prior_{false};

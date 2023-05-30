@@ -27,6 +27,7 @@
 #include "common/logging.h"
 #include "common/rotation.h"
 
+// 根据时间得到IMU数据窗口中的索引值，该索引对应的IMU时间比提供的时间稍大。
 size_t MISC::getInsWindowIndex(const std::deque<std::pair<IMU, IntegrationState>> &window, double time) {
     // 返回时间大于输入的第一个索引
 
@@ -64,27 +65,33 @@ size_t MISC::getInsWindowIndex(const std::deque<std::pair<IMU, IntegrationState>
     return index;
 }
 
+
 bool MISC::getCameraPoseFromInsWindow(const std::deque<std::pair<IMU, IntegrationState>> &window, const Pose &pose_b_c,
                                       double time, Pose &pose) {
-    // 位置内插
+    // 根据时间输入获得对应时间的IMU数据索引
+    // 该索引对应的时间大于给定时间且小于下一条索引时间
     size_t index = getInsWindowIndex(window, time);
     IntegrationState state;
     if (index > 0) {
         auto state0 = window[index - 1].second;
-        auto state1 = window[index].second;
+        auto state1 = window[index].second; 
 
+        // state0 < time < state1
+        // 根据前后两帧的积分状态进行插值
         statePoseInterpolation(state0, state1, time, state);
+        // pose_b_c为body2cam的旋转矩阵
         pose = stateToCameraPose(state, pose_b_c);
         return true;
-    } else {
+    } else { // index == 0表示没更新index，进而表示给定时间在整体IMU序列的左边或者右边。直接使用IMU序列最新数据进行处理
         pose = stateToCameraPose(window.back().second, pose_b_c);
         return false;
     }
 }
 
+// 根据midtime的前后两状态的时间进行状态的线性插值
 void MISC::statePoseInterpolation(const IntegrationState &state0, const IntegrationState &state1, double midtime,
                                   IntegrationState &state) {
-    // 仅位姿内插
+    
 
     Vector3d dp    = state1.p - state0.p;
     Quaterniond dq = state1.q.inverse() * state0.q;
@@ -99,6 +106,9 @@ void MISC::statePoseInterpolation(const IntegrationState &state0, const Integrat
     state.q.normalize();
 }
 
+// 将imu状态中的位置和姿态转化为Camera的位置和姿态
+// 输入：imu估计的状态、body2camera的转化矩阵
+// 输出：camera的状态
 Pose MISC::stateToCameraPose(const IntegrationState &state, const Pose &pose_b_c) {
     Pose pose;
 
@@ -107,6 +117,7 @@ Pose MISC::stateToCameraPose(const IntegrationState &state, const Pose &pose_b_c
     return pose;
 }
 
+// 将分离的位姿合并为一个大的变换矩阵
 Eigen::Matrix4d MISC::pose2Twc(const Pose &pose) {
     Eigen::Matrix4d Twc = Eigen::Matrix4d ::Zero();
     Twc(3, 3)           = 1;
@@ -117,10 +128,12 @@ Eigen::Matrix4d MISC::pose2Twc(const Pose &pose) {
     return Twc;
 }
 
+// 判断两个时间点是否属于同一个时间节点
 bool MISC::isTheSameTimeNode(double time0, double time1, double interval) {
     return fabs(time0 - time1) < interval;
 }
 
+// 根据给定的时间和时间间隔阈值，得到时间序列中与给定时间最接近时间的序列索引
 size_t MISC::getStateDataIndex(const std::deque<double> &timelist, double time, double interval) {
     size_t index = 0;
 
@@ -148,6 +161,10 @@ size_t MISC::getStateDataIndex(const std::deque<double> &timelist, double time, 
     return index;
 }
 
+// 惯导的机械编排算法
+// config为配置参数
+// imu_pre为前一时刻imu数据，imu_cur为当前时刻的imu数据
+// state为输出结果，对应imu_cur的时间
 void MISC::insMechanization(const IntegrationConfiguration &config, const IMU &imu_pre, const IMU &imu_cur,
                             IntegrationState &state) {
 
@@ -158,6 +175,7 @@ void MISC::insMechanization(const IntegrationConfiguration &config, const IMU &i
     imu_pre2.dtheta = imu_pre.dtheta - imu_pre.dt * state.bg;
     imu_pre2.dvel   = imu_pre.dvel - imu_pre.dt * state.ba;
 
+    // IMU比例因子误差补偿
     if (config.iswithscale) {
         for (int k = 0; k < 3; k++) {
             imu_cur2.dtheta[k] *= (1.0 - state.sg[k]);
@@ -171,30 +189,39 @@ void MISC::insMechanization(const IntegrationConfiguration &config, const IMU &i
     state.time = imu_cur.time;
 
     // 双子样
+    // b系比力积分项没使用补偿过的imu数据
     Vector3d dvfb = imu_cur.dvel + 0.5 * imu_cur.dtheta.cross(imu_cur.dvel) +
                     1.0 / 12.0 * (imu_pre.dtheta.cross(imu_cur.dvel) + imu_pre.dvel.cross(imu_cur.dtheta));
+    // imu前后两帧的等效旋转矢量
     Vector3d dtheta = imu_cur2.dtheta + 1.0 / 12.0 * imu_pre2.dtheta.cross(imu_cur2.dtheta);
 
     // 速度变化量
     Vector3d dvel;
 
     if (config.iswithearth) {
-        // 哥氏项和重力项
+        // Part5 (49b)
         Vector3d dv_cor_g = (config.gravity - 2.0 * config.iewn.cross(state.v)) * dt;
 
         // 地球自转补偿项
         Vector3d dnn    = -config.iewn * dt;
+
+        // n(k)到n(k-1)的旋转四元数
         Quaterniond qnn = Rotation::rotvec2quaternion(dnn);
 
+        // Part5 (49a)
+        // dvel为导航坐标系下的速度变化量
+        // state.q.toRotationMatrix()对应n(k-1)到b(k-1)的旋转矩阵
+        // dvfb为在比力作用下速度增量由b(k-1)到b(k)的投影
+        // dv_cor_g为重力/柯氏补偿
         dvel = 0.5 * (Matrix3d::Identity() + qnn.toRotationMatrix()) * state.q.toRotationMatrix() * dvfb + dv_cor_g;
 
-        // 姿态
+        
         state.q = qnn * state.q * Rotation::rotvec2quaternion(dtheta);
         state.q.normalize();
     } else {
+        
         dvel = state.q.toRotationMatrix() * dvfb + config.gravity * dt;
 
-        // 姿态
         state.q *= Rotation::rotvec2quaternion(dtheta);
         state.q.normalize();
     }
@@ -207,10 +234,10 @@ void MISC::insMechanization(const IntegrationConfiguration &config, const IMU &i
 
 void MISC::redoInsMechanization(const IntegrationConfiguration &config, const IntegrationState &updated_state,
                                 size_t reserved_ins_num, std::deque<std::pair<IMU, IntegrationState>> &ins_windows) {
-    // 最新的优化过的位姿
+    // 最新更新过的位姿
     auto state   = updated_state;
     size_t index = getInsWindowIndex(ins_windows, state.time);
-
+    
     if (index == 0) {
         LOGE << "Failed to get right index in mechanization";
         return;
@@ -226,25 +253,29 @@ void MISC::redoInsMechanization(const IntegrationConfiguration &config, const In
     IMU imu0 = ins_windows[index - 1].first;
     IMU imu1 = ins_windows[index].first;
     IMU imu;
-
+    
     int isneed = isNeedInterpolation(imu0, imu1, state.time);
+
+    // 如果靠近imu0，则需要按照该时刻状态参数重新计算imu1时刻的状态
     if (isneed == -1) {
         insMechanization(config, imu0, imu1, state);
         ins_windows[index].second = state;
+    // 如果靠近imu1，则仅需要将imu1时刻的状态进行赋值即可
     } else if (isneed == 1) {
         // 当前时刻状态即为状态量
         state.time                = imu1.time;
         ins_windows[index].second = state;
 
+    // 如果两者都不靠近，则：
     } else if (isneed == 2) {
-        imuInterpolation(imu1, imu, imu1, state.time);
-        insMechanization(config, imu0, imu, state);
+        imuInterpolation(imu1, imu, imu1, state.time); // 首先进行插值
+        insMechanization(config, imu0, imu, state); // 然后依次进行机械编排
         insMechanization(config, imu, imu1, state);
-        ins_windows[index].second = state;
+        ins_windows[index].second = state; // 最终得到更新后的状态
     }
     imu0 = imu1;
 
-    // 仅更新IMU时间点的状态
+    // 依次更新index后面的状态
     for (size_t k = index + 1; k < ins_windows.size(); k++) {
         imu1 = ins_windows[k].first;
         insMechanization(config, imu0, imu1, state);
@@ -262,6 +293,7 @@ void MISC::redoInsMechanization(const IntegrationConfiguration &config, const In
         ins_windows.pop_front();
     }
 }
+
 
 int MISC::isNeedInterpolation(const IMU &imu0, const IMU &imu1, double mid) {
     double time = mid;
@@ -288,6 +320,11 @@ int MISC::isNeedInterpolation(const IMU &imu0, const IMU &imu1, double mid) {
     return 0;
 }
 
+// 根据给定中间时刻对imu数据进行插值
+// imu01为已知imu数据。
+// mid中间时间，该时间在imu01之前，但在imu01的前一帧imu数据之后
+// imu00为mid时刻对应的imu数据
+// imu11为imu01.time时刻的数据，但dt为imu11
 void MISC::imuInterpolation(const IMU &imu01, IMU &imu00, IMU &imu11, double mid) {
     double time = mid;
 
@@ -322,16 +359,20 @@ bool MISC::getImuSeriesFromTo(const std::deque<std::pair<IMU, IntegrationState>>
     series.clear();
 
     // 内插起点
+    // imu0为ins_windows中与start时间最接近的前一个imu索引
     imu0 = ins_windows[is - 1].first;
+    // imu1为ins_windows中与end时间最接近的后一个imu索引 
     imu1 = ins_windows[is].first;
 
     int isneed = isNeedInterpolation(imu0, imu1, start);
+
+    // 如果start与imu0距离小于阈值（可视为接近），则将imu0与imu1都存入IMU容器中
     if (isneed == -1) {
         series.push_back(imu0);
         series.push_back(imu1);
-    } else if (isneed == 1) {
+    } else if (isneed == 1) { // 若start与imu1距离小于阈值，则仅将imu1存入IMU容器中
         series.push_back(imu1);
-    } else if (isneed == 2) {
+    } else if (isneed == 2) { // 若start与两者都不小于阈值，则需要内插，得到新的imu数据。分别为imu,imu1
         imuInterpolation(imu1, imu, imu1, start);
         series.push_back(imu);
         series.push_back(imu1);
@@ -357,12 +398,14 @@ bool MISC::getImuSeriesFromTo(const std::deque<std::pair<IMU, IntegrationState>>
         imuInterpolation(imu1, imu, imu1, end);
         series.push_back(imu);
     }
-    // 显式替换时间
+    // IMU容器中最后一个元素的时间设置为end。但并没有设置第一个元素的时间
     series.back().time = end;
 
     return true;
 }
 
+
+// imu的零速检测
 bool MISC::detectZeroVelocity(const vector<IMU> &imu_buffer, double imudatarate, vector<double> &average) {
 
     auto size          = static_cast<double>(imu_buffer.size());
@@ -373,6 +416,8 @@ bool MISC::detectZeroVelocity(const vector<IMU> &imu_buffer, double imudatarate,
 
     average.resize(6);
     average[0] = average[1] = average[2] = average[3] = average[4] = average[5] = 0;
+
+    // 对imu_buffer中的imu数据增量进行累加
     for (const auto &imu : imu_buffer) {
         average[0] += imu.dtheta.x();
         average[1] += imu.dtheta.y();
@@ -382,6 +427,7 @@ bool MISC::detectZeroVelocity(const vector<IMU> &imu_buffer, double imudatarate,
         average[5] += imu.dvel.z();
     }
     
+    // 求imu增量的平均值
     average[0] *= size_invert;
     average[1] *= size_invert;
     average[2] *= size_invert;
@@ -389,7 +435,10 @@ bool MISC::detectZeroVelocity(const vector<IMU> &imu_buffer, double imudatarate,
     average[4] *= size_invert;
     average[5] *= size_invert;
 
+
     sum[0] = sum[1] = sum[2] = sum[3] = sum[4] = sum[5] = 0;
+
+    // 计算imu增量数据与平均值的差的平方和
     for (const auto &imu : imu_buffer) {
         sum[0] += (imu.dtheta.x() - average[0]) * (imu.dtheta.x() - average[0]);
         sum[1] += (imu.dtheta.y() - average[1]) * (imu.dtheta.y() - average[1]);
@@ -399,7 +448,7 @@ bool MISC::detectZeroVelocity(const vector<IMU> &imu_buffer, double imudatarate,
         sum[5] += (imu.dvel.z() - average[5]) * (imu.dvel.z() - average[5]);
     }
 
-    // 速率形式
+    // 计算出imu数据增量的标准差，用于衡量imu增量的分散程度
     std[0] = sqrt(sum[0] * size_invert) * imudatarate; // 等价于standard deviation * imudatarate
     std[1] = sqrt(sum[1] * size_invert) * imudatarate;  
     std[2] = sqrt(sum[2] * size_invert) * imudatarate;
@@ -407,6 +456,11 @@ bool MISC::detectZeroVelocity(const vector<IMU> &imu_buffer, double imudatarate,
     std[4] = sqrt(sum[4] * size_invert) * imudatarate;
     std[5] = sqrt(sum[5] * size_invert) * imudatarate;
 
+    // 下面表示如果imu数据增量很集中，则说明三轴加速度和角速度是恒定的
+    // 当三轴加速度和角速度恒定时只有IMU相对地球静止时才会发生，原因：
+    // 1. IMU一定不发生转动，因为如果转动，则三轴加速度就不恒定了
+    // 2. IMU会相对地球发生直线运动么？严格来说是可以的，假如IMU做自由落体运动则比力为0，且三轴角速度也为0，那么此时IMU不是零速。但该情况基本不存在
+    // 3. 上述类似情况发生情形很少。所以当满足两个条件时，一般会认为IMU处于零速状态
     if ((std[0] < ZERO_VELOCITY_GYR_THRESHOLD) && (std[1] < ZERO_VELOCITY_GYR_THRESHOLD) &&
         (std[2] < ZERO_VELOCITY_GYR_THRESHOLD) && (std[3] < ZERO_VELOCITY_ACC_THRESHOLD) &&
         (std[4] < ZERO_VELOCITY_ACC_THRESHOLD) && (std[5] < ZERO_VELOCITY_ACC_THRESHOLD)) {

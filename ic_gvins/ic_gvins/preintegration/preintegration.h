@@ -58,7 +58,7 @@ public:
         createPreintegration(const std::shared_ptr<IntegrationParameters> &parameters, const IMU &imu0,
                              const IntegrationState &state, PreintegrationOptions options) {
         std::shared_ptr<PreintegrationBase> preintegration;
-
+        
         if (options == PREINTEGRATION_NORMAL) {
             preintegration = std::make_shared<PreintegrationNormal>(parameters, imu0, state);
         } else if (options == PREINTEGRATION_ODO) {

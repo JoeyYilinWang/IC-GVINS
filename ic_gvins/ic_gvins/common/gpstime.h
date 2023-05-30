@@ -28,18 +28,27 @@
 // GPS is now ahead of UTC by 18 seconds
 #define GPS_LEAP_SECOND 18
 
+/**
+ * UNIX时间戳：UTC时间都是从1970年01月01日0:00:00开始计算秒数的，这个描述就是unix时间戳
+ * gps时间戳：GPS始于1980年1月6日，连续时间增加不调秒
+ * unix_timestamp = gps_timestamp + 两个时间起始相差的固定秒数 - GPS_LEAP_SECOND
+ * GPS_LEAP_SECOND为目前为止，GPS超前UTC时间18秒。
+ */
+
+
+
 class GpsTime {
 
 public:
     static void gps2unix(int week, double sow, double &unixs) {
-        unixs = sow + week * 604800 + 315964800 - GPS_LEAP_SECOND;
+        unixs = sow + week * 604800 + 315964800 - GPS_LEAP_SECOND; // 6048为一周的时间秒数
     };
-
+    
     static void unix2gps(double unixs, int &week, double &sow) {
-        double seconds = unixs + GPS_LEAP_SECOND - 315964800;
+        double seconds = unixs + GPS_LEAP_SECOND - 315964800; // seconds为GPS的时间戳（从1980年1月6日计起）
 
-        week = floor(seconds / 604800);
-        sow  = seconds - week * 604800;
+        week = floor(seconds / 604800); // 得到周时
+        sow  = seconds - week * 604800; // sow(Seconds of Week)表示周内秒。是指从当前GPS周的起始时刻（通常为周日零点）到当前时间的总秒数
     };
 };
 

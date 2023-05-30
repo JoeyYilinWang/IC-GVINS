@@ -43,6 +43,9 @@
 #include <ceres/ceres.h>
 #include <yaml-cpp/yaml.h>
 
+#include "../ROS/fusion_ros.h"
+
+
 GVINS::GVINS(const string &configfile, const string &outputpath, Drawer::Ptr drawer) {
     gvinsstate_ = GVINS_ERROR; // 设定初始状态
     
@@ -77,21 +80,21 @@ GVINS::GVINS(const string &configfile, const string &outputpath, Drawer::Ptr dra
     ofconfig.close();
 
     // 初始化长度
-    initlength_       = config["initlength"].as<int>();
-    imudatarate_      = config["imudatarate"].as<double>();
+    initlength_       = config["initlength"].as<int>(); // 设定初始化时间
+    imudatarate_      = config["imudatarate"].as<double>(); // 设定IMU频率
     imudatadt_        = 1.0 / imudatarate_;
-    reserved_ins_num_ = 2; // 跟机械编排算法有关
+    reserved_ins_num_ = 2; 
 
     // 安装参数
     // Installation parameters
     vecdata   = config["antlever"].as<std::vector<double>>();
     antlever_ = Vector3d(vecdata.data());
-
+    
     // IMU噪声参数
     // IMU parameters
     integration_parameters_               = std::make_shared<IntegrationParameters>();
     integration_parameters_->gyr_arw      = config["imumodel"]["arw"].as<double>() * D2R / 60.0;
-    integration_parameters_->gyr_bias_std = config["imumodel"]["gbstd"].as<double>() * D2R / 3600.0;
+    integration_parameters_->gyr_bias_std = config["imumodel"]["gbstd"].as<double>() * D2R / 3600.0; 
     integration_parameters_->acc_vrw      = config["imumodel"]["vrw"].as<double>() / 60.0;
     integration_parameters_->acc_bias_std = config["imumodel"]["abstd"].as<double>() * 1.0e-5;
     integration_parameters_->corr_time    = config["imumodel"]["corrtime"].as<double>() * 3600;
@@ -120,12 +123,12 @@ GVINS::GVINS(const string &configfile, const string &outputpath, Drawer::Ptr dra
     camera_ = Camera::createCamera(intrinsic, distortion, resolution);
 
     // IMU和Camera外参
-    // Extrinsic parameters
+    // Extrinsic parameters, cam to body
     vecdata           = config["cam0"]["q_b_c"].as<std::vector<double>>();
     Quaterniond q_b_c = Eigen::Quaterniond(vecdata.data());
     vecdata           = config["cam0"]["t_b_c"].as<std::vector<double>>();
     Vector3d t_b_c    = Eigen::Vector3d(vecdata.data());
-    td_b_c_           = config["cam0"]["td_b_c"].as<double>();
+    td_b_c_           = config["cam0"]["td_b_c"].as<double>(); // time delay between camera and imu
 
     pose_b_c_.R = q_b_c.toRotationMatrix();
     pose_b_c_.t = t_b_c;
@@ -134,7 +137,7 @@ GVINS::GVINS(const string &configfile, const string &outputpath, Drawer::Ptr dra
     // Optimization parameters
     reprojection_error_std_      = config["reprojection_error_std"].as<double>();
     optimize_estimate_extrinsic_ = config["optimize_estimate_extrinsic"].as<bool>();
-    optimize_estimate_td_        = config["optimize_estimate_td"].as<bool>();
+    optimize_estimate_td_        = config["optimize_estimate_td"].as<bool>(); 
     optimize_num_iterations_     = config["optimize_num_iterations"].as<int>();
     optimize_windows_size_       = config["optimize_windows_size"].as<size_t>();
 
@@ -152,9 +155,9 @@ GVINS::GVINS(const string &configfile, const string &outputpath, Drawer::Ptr dra
     timelist_.clear();
 
     // GVINS fusion objects
-    map_    = std::make_shared<Map>(optimize_windows_size_);
+    map_    = std::make_shared<Map>(optimize_windows_size_); // 这里已经提供默认值20
     drawer_ = std::move(drawer);
-    drawer_->setMap(map_);
+    drawer_->setMap(map_); // 使drawer能够读取map
     if (is_use_visualization_) {
         drawer_thread_ = std::thread(&Drawer::run, drawer_);
     }
@@ -165,23 +168,26 @@ GVINS::GVINS(const string &configfile, const string &outputpath, Drawer::Ptr dra
     tracking_thread_     = std::thread(&GVINS::runTracking, this);
     optimization_thread_ = std::thread(&GVINS::runOptimization, this);
 
-    gvinsstate_ = GVINS_INITIALIZING; // 初始化状态设置完成
+    gvinsstate_ = GVINS_INITIALIZING; // gvins状态设置为：正在初始化
 }
 
 // 该函数被用在FusionROS::imuCallback中，由于imu数据频率较高，因此该函数会被调用更多次
 bool GVINS::addNewImu(const IMU &imu) {
     if (imu_buffer_mutex_.try_lock()) { // 主线程获得imu_buffer_mutex_锁，其他线程无法使用该锁
-        if (imu.dt > (imudatadt_ * 3)) { // imu.dt为当前帧与前一帧的时间间隔。如果比1/imudatarate * 3大，则说明有imu数据丢失
+        if (imu.dt > (imudatadt_ * 5)) { // imu.dt为当前帧与前一帧的时间间隔。如果比1/imudatarate * 5大，则说明有imu数据丢失
             LOGE << absl::StrFormat("Lost IMU data with at %0.3lf dt %0.3lf", imu.time, imu.dt);
             
-            long cnts = lround(imu.dt / imudatadt_) - 1; // lround为四舍五入并转化为长整数
+            long cnts = lround(imu.dt / imudatadt_) - 1; // lround为四舍五入并转化为长整数，计算间隔时间内差了多少个imu数据
 
             IMU imudata  = imu;
             imudata.time = imu.time - imu.dt;
+
+            // 利用插值的方法补全丢失的数据，用imu_buffer_存储
+            // 但这里仅对时间进行了插值，没有对角度/速度增量进行插值
             while (cnts--) {
                 imudata.time += imudatadt_;
                 imudata.dt = imudatadt_;
-                imu_buffer_.push(imudata);
+                imu_buffer_.push(imudata); 
                 LOGE << "Append extra IMU data at " << Logging::doubleData(imudata.time);
             }
         } else {
@@ -218,7 +224,7 @@ bool GVINS::addNewGnss(const GNSS &gnss) {
     }
 
     gnss_        = gnss;
-    // 此时gnss_blh已被转化为局部坐标系坐标了，坐标原点为integration_config_.origin
+    // 改变为导航坐标系下的坐标
     gnss_.blh    = Earth::global2local(integration_config_.origin, gnss_.blh);
     isgnssready_ = true;
 
@@ -226,6 +232,7 @@ bool GVINS::addNewGnss(const GNSS &gnss) {
 }
 
 bool GVINS::addNewFrame(const Frame::Ptr &frame) {
+    // ROS_INFO("add new frame successfully");
     if (gvinsstate_ > GVINS_INITIALIZING_INS) {
         if (frame_buffer_mutex_.try_lock()) { // 主线程尝试拿到frame_buffer_mutex_锁
             frame_buffer_.push(frame); 
@@ -253,11 +260,13 @@ void GVINS::runFusion() {
         // 其目的是等待主线程中的addNewImu往imu_buffer_里存好数据
         // addNewImu每成功存储一条imu数据就发送fusion_sem_信号，同时释放imu_buffer_mutex_锁
         fusion_sem_.wait(lock); 
-        
+        // ROS_INFO("imu_buffer_ ready");
+
         // 获取所有有效数据
         // Process all IMU data
         while (!imu_buffer_.empty()) { // IMU BUFFER
 
+            // ROS_INFO("imu_buffer_ size is: %ld", imu_buffer_.size());
             // 读取IMU缓存
             // Load an IMU sample
             {
@@ -307,13 +316,23 @@ void GVINS::runFusion() {
                 // 融合状态
                 // Fusion process
                 if (gvinsstate_ == GVINS_INITIALIZING) {
-                
+
                     // isgnssready_初始为false，只有当addNewGnss成功执行后才会变为true
                     // 看addNewGnss代码可知，GNSS信号为低频信号，无需加锁使用，因此addNewGnss的代码段一直处于非阻塞状态
                     // 在isgnssready_置为true之前，由于IMU高频的特性，使得ins_window_已经保存了很多IMU数据了
+                    
+                    if (isgnssready_ == true)
+                    {
+                        ROS_INFO("GNSS ready");
+                    }
+                    else{
+                        ROS_INFO("GNSS not ready");
+                    }
                     if (isgnssready_ && state_mutex_.try_lock()) { 
+
                         // 初始化参数
                         // GVINS initialization using GNSS/INS initialization
+
                         if (gvinsInitialization()) {
                             gvinsstate_ = GVINS_INITIALIZING_INS;
 
@@ -602,7 +621,6 @@ bool GVINS::gvinsInitialization() {
     if ((gnss_.time == 0) || (last_gnss_.time == 0)) {
         return false;
     }
-    
     // 缓存数据用于零速检测
     // Buffer for zero-velocity detection
     vector<IMU> imu_buff;
@@ -612,7 +630,7 @@ bool GVINS::gvinsInitialization() {
             imu_buff.push_back(imu);
         }
     }
-    if (imu_buff.size() < 20) { // 需要20条IMU数据
+    if (imu_buff.size() < 20) { // 至少需要20条IMU数据来进行初始化
         return false;
     }
 
@@ -623,19 +641,18 @@ bool GVINS::gvinsInitialization() {
     static Vector3d initatt{0, 0, 0};
     static bool is_has_zero_velocity = false; // 初始化是否零速状态量为false
 
-    // 使用检测零速状态函数检测零速状态，仅使用IMU数据进行检测
-    // 输入为前后两帧GNSS数据之间的IMU数据，imu的频率，输出为判断零速状态的bool值以及imu的速度差值平均值和角度差值平均值
+    // 判断零速状态
     bool is_zero_velocity = MISC::detectZeroVelocity(imu_buff, imudatarate_, average);
     if (is_zero_velocity) {
         // 陀螺零偏
+        // 如果IMU是高精度的，那么IMU静止时所测量的便是地球自转
         bg = Vector3d(average[0], average[1], average[2]); 
         bg *= imudatarate_; // 转化为以s为单位
 
         // 重力调平获取横滚俯仰角
         Vector3d fb(average[3], average[4], average[5]); // 计算imu_buff中前后两帧的速度差平均值
-        fb *= imudatarate_; // 转化为s为单位，实际上就是加速度值，因为当前是零速状态，所以加速度主要体现在重力上
+        fb *= imudatarate_; // 转化为s为单位，实际上就是加速度值
 
-        // roll和pitch都是围绕重力方向计算的，与欧拉角有共同点么？
         initatt[0] = -asin(fb[1] / integration_parameters_->gravity); // roll
         initatt[1] = asin(fb[0] / integration_parameters_->gravity); // pitch 
 
@@ -655,6 +672,8 @@ bool GVINS::gvinsInitialization() {
             LOGI << "Initialized heading from dual-antenna GNSS as " << initatt[2] * R2D << " deg";
         } else {
             Vector3d vel = gnss_.blh - last_gnss_.blh; // 因为GNSS以秒为计数，所以前后两帧的差直接就表示速度
+
+            // 如果根据前后帧GNSS数据计算的速度小于阈值（物体运动太小），则直接返回false
             if (vel.norm() < MINMUM_ALIGN_VELOCITY) { 
                 return false;
             }
@@ -689,7 +708,7 @@ bool GVINS::gvinsInitialization() {
         .sg   = {0, 0, 0},
         .sa   = {0, 0, 0},
     };
-
+    
     // 将IntegrationState转化为IntegrationStateData，两者存的内容一样只是形式不同
     statedatalist_.emplace_back(Preintegration::stateToData(state, preintegration_options_));
     gnsslist_.push_back(last_gnss_);
@@ -1336,7 +1355,7 @@ void GVINS::updateParametersFromOptimizer() {
         if (optimize_estimate_td_) {
             td_b_c_ = extrinsic_[7];
         }
-
+        
         if (optimize_estimate_extrinsic_) {
             Pose ext;
             ext.t[0] = extrinsic_[0];

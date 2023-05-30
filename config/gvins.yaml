@@ -26,8 +26,8 @@ antlever: [-0.37, 0.008, 0.353]
 imumodel:
     arw: 0.1        # deg/sqrt(hr)
     vrw: 0.1        # m/s/sqrt(hr)
-    gbstd: 50.0     # deg/hr
-    abstd: 50.0     # mGal
+    gbstd: 50.0     # deg/hr，衡量的是陀螺仪零偏稳定性
+    abstd: 50.0     # mGal，衡量的是加速度计的零偏稳定性
     corrtime: 1.0   # hr
 
 # GNSS中断配置

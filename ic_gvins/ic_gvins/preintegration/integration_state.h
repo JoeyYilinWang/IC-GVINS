@@ -42,7 +42,7 @@ typedef struct IntegrationState {
     Vector3d bg{0, 0, 0}; // gyro bias
     Vector3d ba{0, 0, 0}; // acc bias
     
-    Vector3d s{0, 0, 0}; // unknown
+    Vector3d s{0, 0, 0}; // 不知道是啥
     double sodo{0}; // odometry scale factor
     Vector2d avb{0, 0}; // What is it?
 
@@ -62,7 +62,7 @@ typedef struct IntegrationStateData {
     // vel + bias + scale : 3 + 6 + 6 = 15
     // vel + bias + sodo + scale : 3 + 6 + 1 + 6 = 16
     // vel + bias + sodo + scale + abv : 3 + 6 + 1 + 6 + 2 = 18
-    double mix[18]; // unknown
+    double mix[18];  // 这里没有包含IntegrationState中的成员s 
 } IntegrationStateData;
 
 typedef struct IntegrationParameters {

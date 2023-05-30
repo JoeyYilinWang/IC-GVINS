@@ -202,7 +202,7 @@ void DrawerRviz::addNewFixedMappoint(Vector3d point) {
 
 void DrawerRviz::updateMap(const Eigen::Matrix4d &pose) {
     std::unique_lock<std::mutex> lock(map_mutex_);
-
+    
     pose_.R = pose.block<3, 3>(0, 0);
     pose_.t = pose.block<3, 1>(0, 3);
 

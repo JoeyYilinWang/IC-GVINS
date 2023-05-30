@@ -48,7 +48,7 @@ public:
     const Mat &cameraMatrix() {
         return intrinsic_;
     }
-
+    
     void undistortPoints(std::vector<cv::Point2f> &pts);
     void undistortImage(const Mat &src, Mat &dst);
     void distortPoints(std::vector<cv::Point2f> &pts) const;

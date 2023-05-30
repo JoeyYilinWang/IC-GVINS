@@ -55,19 +55,22 @@ public:
     static Eigen::Vector2d meridianPrimeVerticalRadius(double lat) {
         double tmp, sqrttmp;
 
-        tmp = sin(lat);
+        tmp = sin(lat); // 计算纬度正弦值
         tmp *= tmp;
-        tmp     = 1 - WGS84_E1 * tmp;
+        tmp     = 1 - WGS84_E1 * tmp; // WGS84_E1为第一偏心率的平方
         sqrttmp = sqrt(tmp);
 
+        // 分别返回R_M 和 R_N(子午圈半径和卯酉圈半径)
         return {WGS84_RA * (1 - WGS84_E1) / (sqrttmp * tmp), WGS84_RA / sqrttmp};
     }
 
+    // 返回卯酉圈半径
     static double RN(double lat) {
         double sinlat = sin(lat);
         return WGS84_RA / sqrt(1.0 - WGS84_E1 * sinlat * sinlat);
     }
 
+    // C_{ne}的计算，表示n系到e系的投影变换矩阵
     static Matrix3d cne(const Vector3d &blh) {
         double coslon, sinlon, coslat, sinlat;
 
@@ -92,6 +95,7 @@ public:
         return dcm;
     }
 
+    // 计算q_{en}，表示由e系向n系的旋转
     static Quaterniond qne(const Vector3d &blh) {
         Quaterniond quat;
 
@@ -110,10 +114,12 @@ public:
         return quat;
     }
 
+    // 根据q_{en}和高度信息获取经纬高
     static Vector3d blh(const Quaterniond &qne, double height) {
         return {-2 * atan(qne.y() / qne.w()) - M_PI * 0.5, 2 * atan2(qne.z(), qne.w()), height};
     }
 
+    // 经纬高坐标系转化为地心坐标系（ECEF为Earth-Centered, Earth-Fixed的缩写）
     static Vector3d blh2ecef(const Vector3d &blh) {
         double coslat, sinlat, coslon, sinlon;
         double rnh, rn;
@@ -129,6 +135,7 @@ public:
         return {rnh * coslat * coslon, rnh * coslat * sinlon, (rnh - rn * WGS84_E1) * sinlat};
     }
 
+    // 地心坐标系转化为经纬高坐标系
     static Vector3d ecef2blh(const Vector3d &ecef) {
         double p = sqrt(ecef[0] * ecef[0] + ecef[1] * ecef[1]);
         double rn;
@@ -149,6 +156,7 @@ public:
         return {lat, lon, h};
     }
 
+    // 
     static Matrix3d DRi(const Vector3d &blh) {
         Matrix3d dri = Matrix3d::Zero();
 
@@ -171,26 +179,31 @@ public:
         return dr;
     }
 
+    // 导航坐标转化为经纬度坐标
     static Vector3d local2global(const Vector3d &origin, const Vector3d &local) {
 
-        Vector3d ecef0 = blh2ecef(origin);
-        Matrix3d cn0e  = cne(origin);
+        Vector3d ecef0 = blh2ecef(origin);  // 先将经纬度转化为地心坐标系坐标
+        Matrix3d cn0e  = cne(origin); // 根据经纬度计算出n系到e的投影变换矩阵
 
-        Vector3d ecef1 = ecef0 + cn0e * local;
+        // 先将导航坐标系下的坐标转化为地心坐标系下的坐标（只有旋转变换）
+        // 然后再与地心坐标系下的起点坐标相加
+        Vector3d ecef1 = ecef0 + cn0e * local;  
         Vector3d blh1  = ecef2blh(ecef1);
 
         return blh1;
     }
 
+    // 经纬度坐标转化为导航坐标
     static Vector3d global2local(const Vector3d &origin, const Vector3d &global) {
         Vector3d ecef0 = blh2ecef(origin);
-        Matrix3d cn0e  = cne(origin);
+        Matrix3d cn0e  = cne(origin); 
 
         Vector3d ecef1 = blh2ecef(global);
 
         return cn0e.transpose() * (ecef1 - ecef0);
     }
-
+    
+    // 导航位姿转化为全球
     static Pose local2global(const Vector3d &origin, const Pose &local) {
         Pose global;
 
@@ -222,24 +235,29 @@ public:
         return local;
     }
 
+    // e系围绕i系的旋转角速度在e系上的投影
     static Vector3d iewe() {
         return {0, 0, WGS84_WIE};
     }
 
+    // e系围绕i系旋转的角速度在n系上的投影
     static Vector3d iewn(double lat) {
         return {WGS84_WIE * cos(lat), 0, -WGS84_WIE * sin(lat)};
     }
 
+    // e系围绕i系旋转角速度在n系上的投影
     static Vector3d iewn(const Vector3d &origin, const Vector3d &local) {
         Vector3d global = local2global(origin, local);
         
         return iewn(global[0]);
     }
 
+    // n系围绕e系旋转角速度在n系上的投影
     static Vector3d enwn(const Eigen::Vector2d &rmn, const Vector3d &blh, const Vector3d &vel) {
         return {vel[1] / (rmn[1] + blh[2]), -vel[0] / (rmn[0] + blh[2]), -vel[1] * tan(blh[0]) / (rmn[1] + blh[2])};
     }
 
+    // n系围绕e系旋转角速度在n系上的投影
     static Vector3d enwn(const Vector3d &origin, const Vector3d &local, const Vector3d &vel) {
         Vector3d global     = local2global(origin, local);
         Eigen::Vector2d rmn = meridianPrimeVerticalRadius(global[0]);

@@ -64,7 +64,7 @@ public:
 
         return euler;
     }
-
+     
     static Vector3d quaternion2euler(const Quaterniond &quaternion) {
         return matrix2euler(quaternion.toRotationMatrix());
     }
@@ -86,7 +86,7 @@ public:
                         Eigen::AngleAxisd(euler[1], Vector3d::UnitY()) *
                         Eigen::AngleAxisd(euler[0], Vector3d::UnitX()));
     }
-
+    
     static Quaterniond euler2quaternion(const Vector3d &euler) {
         return Quaterniond(Eigen::AngleAxisd(euler[2], Vector3d::UnitZ()) *
                            Eigen::AngleAxisd(euler[1], Vector3d::UnitY()) *
