@@ -59,7 +59,7 @@ public:
 
     GVINS() = delete;
     explicit GVINS(const string &configfile, const string &outputpath, Drawer::Ptr drawer);
-
+    
     bool addNewImu(const IMU &imu);
     bool addNewGnss(const GNSS &gnss);
     bool addNewFrame(const Frame::Ptr &frame);
@@ -70,6 +70,7 @@ public:
         return !isfinished_;
     }
     
+    // 返回GVINS当前状态，返回值为前面定义的枚举类型
     GVINSState gvinsState() const {
         return gvinsstate_;
     }

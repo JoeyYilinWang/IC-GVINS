@@ -77,6 +77,8 @@ public:
         pose_ = std::move(pose);
     }
 
+    // 返回特征点集合
+    // 注意这里使用了unordered_map来存储，unordered_map底层实现是哈希表。这样做的好处是查找很有效率
     std::unordered_map<ulong, Feature::Ptr> features() {
         std::unique_lock<std::mutex> lock(frame_mutex_);
         return features_;
@@ -89,64 +91,77 @@ public:
         unupdated_mappoints_.clear();
     }
 
+    // 返回特征点数量
     size_t numFeatures() {
         std::unique_lock<std::mutex> lock(frame_mutex_);
 
         return features_.size();
     }
 
+    // 返回地图点的集合
     const std::vector<std::shared_ptr<MapPoint>> &unupdatedMappoints() {
         std::unique_lock<std::mutex> lock(frame_mutex_);
 
         return unupdated_mappoints_;
     }
 
+    // 增加新的未更新的地图点
     void addNewUnupdatedMappoint(const std::shared_ptr<MapPoint> &mappoint) {
         std::unique_lock<std::mutex> lock(frame_mutex_);
 
         unupdated_mappoints_.push_back(mappoint);
     }
 
+    // 为特征集合添加新的元素
     void addFeature(ulong mappointid, const Feature::Ptr &features) {
         std::unique_lock<std::mutex> lock(frame_mutex_);
 
         features_.insert(make_pair(mappointid, features));
     }
 
+    // 返回时间戳
     double stamp() const {
         return stamp_;
     }
 
+    // 设置时间戳
     void setStamp(double stamp) {
         stamp_ = stamp;
     }
 
+    // 返回时间延时
     double timeDelay() const {
         return td_;
     }
 
+    // 设置时间延迟
     void setTimeDelay(double td) {
         td_ = td;
     }
 
+    // 返回是否为关键帧的判断
     bool isKeyFrame() const {
         return iskeyframe_;
     }
 
+    // 返回该帧的id 
     ulong id() const {
         return id_;
     }
 
+    // 返回关键帧id
     ulong keyFrameId() const {
         return keyframe_id_;
     }
 
+    // 设置关键帧的状态
     void setKeyFrameState(int state) {
         std::unique_lock<std::mutex> lock(frame_mutex_);
 
         keyframe_state_ = state;
     }
 
+    // 返回关键帧状态
     int keyFrameState() {
         std::unique_lock<std::mutex> lock(frame_mutex_);
 
@@ -154,17 +169,18 @@ public:
     }
 
 private:
-    int keyframe_state_{KEYFRAME_NORMAL};
+
+    int keyframe_state_{KEYFRAME_NORMAL}; // 关键帧状态初始化为一般关键帧
 
     std::mutex frame_mutex_;
 
-    ulong id_;
-    ulong keyframe_id_;
+    ulong id_; // 该帧id
+    ulong keyframe_id_; // 关键帧id
 
-    double stamp_;
-    double td_{0};
+    double stamp_; // 时间戳
+    double td_{0}; // 时间延迟
 
-    Pose pose_;
+    Pose pose_; // 
 
     Mat image_, raw_image_;
 
@@ -173,5 +189,6 @@ private:
     std::unordered_map<ulong, Feature::Ptr> features_;
     vector<std::shared_ptr<MapPoint>> unupdated_mappoints_;
 };
+
 
 #endif // GVINS_FRAME_H

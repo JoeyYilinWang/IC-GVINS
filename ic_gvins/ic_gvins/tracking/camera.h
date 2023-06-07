@@ -94,4 +94,5 @@ private:
     int width_, height_;
 };
 
+
 #endif // GVINS_CAMERA_H

@@ -36,6 +36,7 @@ FileLoader::~FileLoader() {
 }
 
 bool FileLoader::open(const string &filename, int columns, int filetype) {
+    // 
     auto type = filetype == TEXT ? std::ios_base::in : (std::ios_base::in | std::ios_base::binary);
     filefp_.open(filename, type);
 
@@ -44,12 +45,14 @@ bool FileLoader::open(const string &filename, int columns, int filetype) {
     return isOpen();
 }
 
+// 从一个文件中读取一行数据，并将该数据返回
 vector<double> FileLoader::load() {
     load_();
 
     return data_;
 }
 
+// 从一个文件中读取多行数据，并将这些数据返回
 vector<vector<double>> FileLoader::loadn(int epochs) {
     vector<vector<double>> datas;
     datas.clear();
@@ -65,6 +68,7 @@ vector<vector<double>> FileLoader::loadn(int epochs) {
     return datas;
 }
 
+// 从一个文件中读取一行数据，并将这些数据保存在data中
 bool FileLoader::load(vector<double> &data) {
     if (load_()) {
         data = std::move(data_);
@@ -74,6 +78,7 @@ bool FileLoader::load(vector<double> &data) {
     return false;
 }
 
+// 从一个文件中读取多行数据，并将这些数据保存在datas中
 bool FileLoader::loadn(vector<vector<double>> &datas, int epochs) {
     datas.clear();
 
@@ -88,6 +93,7 @@ bool FileLoader::loadn(vector<vector<double>> &datas, int epochs) {
     return !datas.empty();
 }
 
+// 从一个文件中读取一行数据，并将这些数据保存在data_成员变量中
 bool FileLoader::load_() {
     if (isEof())
         return false;
@@ -101,6 +107,7 @@ bool FileLoader::load_() {
         vector<string> splits = absl::StrSplit(line, absl::ByAnyChar(", \t"), absl::SkipWhitespace());
 
         data_.clear();
+        // 将splits中的每个字符串转换为double类型的值，并将这些值添加到data_中
         for (auto &split : splits) {
             data_.push_back(strtod(split.data(), nullptr));
         }

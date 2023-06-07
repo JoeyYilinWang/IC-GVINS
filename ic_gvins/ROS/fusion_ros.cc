@@ -285,7 +285,7 @@ int main(int argc, char *argv[]) {
     std::signal(SIGINT, sigintHandler);
 
     auto fusion = std::make_shared<FusionROS>(); // FusionROS的构造函数是DEFAULT
-
+    
     // Check thread，该线程一直在运行，时刻监控是否接收到中断信号。若受到中断信号，直接关闭ROS。
     std::thread check_thread(checkStateThread, fusion); 
 

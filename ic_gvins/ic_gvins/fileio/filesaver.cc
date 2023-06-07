@@ -38,10 +38,12 @@ bool FileSaver::open(const string &filename, int columns, int filetype) {
     return isOpen();
 }
 
+// 将data数据填充整行
 void FileSaver::dump(const vector<double> &data) {
     dump_(data);
 }
 
+// 将data数据填充多行
 void FileSaver::dumpn(const vector<vector<double>> &data) {
     for (const auto &k : data) {
         dump_(k);
@@ -52,22 +54,26 @@ void FileSaver::dump_(const vector<double> &data) {
     if (filetype_ == TEXT) {
         string line;
 
+        // 定义字符串格式
         constexpr absl::string_view format = "%-15.9lf ";
 
+        // 初始化行首值
         line = absl::StrFormat(format, data[0]);
+        // 填充整行
         for (size_t k = 1; k < data.size(); k++) {
             absl::StrAppendFormat(&line, format, data[k]);
         }
-
+        // 换行
         filefp_ << line << "\n";
     } else {
+        // 将data中的所有数据以二进制的形式写入到文件中
         filefp_.write(reinterpret_cast<const char *>(data.data()), sizeof(double) * data.size());
     }
 }
 
 FileSaver::~FileSaver() {
     if (isOpen()) {
-        flush();
+        flush(); // 清理缓冲区
         close();
     }
 }
