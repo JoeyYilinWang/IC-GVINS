@@ -98,7 +98,7 @@ public:
         return features_.size();
     }
 
-    // 返回地图点的集合
+    // 返回未更新地图点的集合
     const std::vector<std::shared_ptr<MapPoint>> &unupdatedMappoints() {
         std::unique_lock<std::mutex> lock(frame_mutex_);
 

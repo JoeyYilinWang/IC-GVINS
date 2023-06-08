@@ -23,11 +23,11 @@
 #include "tracking/frame.h"
 
 Frame::Frame(ulong id, double stamp, Mat image)
-    : id_(id)
-    , keyframe_id_(0)
+    : id_(id) 
+    , keyframe_id_(0) // 非关键帧设置为0
     , stamp_(stamp)
     , image_(std::move(image))
-    , iskeyframe_(false) {
+    , iskeyframe_(false) { // 默认不是关键帧
     features_.clear();
     unupdated_mappoints_.clear();
 
@@ -35,7 +35,7 @@ Frame::Frame(ulong id, double stamp, Mat image)
 }
 
 Frame::Ptr Frame::createFrame(double stamp, const Mat &image) {
-    static ulong factory_id = 0;
+    static ulong factory_id = 0; 
 
     return std::make_shared<Frame>(factory_id++, stamp, image);
 }
