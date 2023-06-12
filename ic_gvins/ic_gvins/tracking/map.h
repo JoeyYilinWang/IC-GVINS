@@ -50,7 +50,7 @@ public:
     size_t windowSize() const {
         return window_size_;
     }
-
+    
     void insertKeyFrame(const Frame::Ptr &frame);
 
     const KeyFrames &keyframes() {
