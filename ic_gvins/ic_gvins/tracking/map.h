@@ -46,11 +46,11 @@ public:
     void resetWindowSize(size_t size) {
         window_size_ = size;
     }
-
+    
     size_t windowSize() const {
         return window_size_;
     }
-    
+
     void insertKeyFrame(const Frame::Ptr &frame);
 
     const KeyFrames &keyframes() {
@@ -93,8 +93,8 @@ public:
 private:
     std::mutex map_mutex_;
 
-    KeyFrames keyframes_;
-    LandMarks landmarks_;
+    KeyFrames keyframes_; // 包含诸多关键帧
+    LandMarks landmarks_; // 包含诸多特征点
 
     Frame::Ptr latest_keyframe_;
 

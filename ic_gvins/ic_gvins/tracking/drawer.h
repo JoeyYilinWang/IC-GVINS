@@ -41,7 +41,7 @@ public:
     void setMap(Map::Ptr map) {
         map_ = std::move(map);
     };
-
+    
     // 地图
     virtual void addNewFixedMappoint(Vector3d point)    = 0;
     virtual void updateMap(const Eigen::Matrix4d &pose) = 0;

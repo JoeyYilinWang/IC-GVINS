@@ -29,9 +29,11 @@ void Map::insertKeyFrame(const Frame::Ptr &frame) {
 
     // New keyframe
     latest_keyframe_ = frame;
+    // keyframes的的pair以key = id， value = frame的形式存储的
+    // 根据frame的id来进行来寻找当前帧是否已经存在
     if (keyframes_.find(frame->keyFrameId()) == keyframes_.end()) {
         keyframes_.insert(make_pair(frame->keyFrameId(), frame));
-    } else {
+    } else { // 如果已存在，则更新该帧
         keyframes_[frame->keyFrameId()] = frame;
     }
 
@@ -50,6 +52,7 @@ void Map::insertKeyFrame(const Frame::Ptr &frame) {
     }
 }
 
+// 对keyframes中的id进行排序
 vector<ulong> Map::orderedKeyFrames() {
     std::unique_lock<std::mutex> lock(map_mutex_);
 
@@ -62,6 +65,7 @@ vector<ulong> Map::orderedKeyFrames() {
     return keyframeid;
 }
 
+// 返回最旧的帧
 Frame::Ptr Map::oldestKeyFrame() {
     std::unique_lock<std::mutex> lock(map_mutex_);
 
@@ -79,7 +83,7 @@ void Map::removeMappoint(MapPoint::Ptr &mappoint) {
     std::unique_lock<std::mutex> lock(map_mutex_);
 
     mappoint->setOutlier(true);
-    mappoint->removeAllObservations();
+    mappoint->removeAllObservations(); // 清空所有对其的观察
     if (landmarks_.find(mappoint->id()) != landmarks_.end()) {
         landmarks_.erase(mappoint->id());
     }
@@ -98,6 +102,7 @@ void Map::removeKeyFrame(Frame::Ptr &frame, bool isremovemappoint) {
             if (mappoint) {
                 // 参考帧非边缘化帧, 不移除
                 auto ref_frame = mappoint->referenceFrame();
+                // 如果参考帧不为当前帧，则说明mappoint只是恰巧出现在当前帧，不能把他删除
                 if (ref_frame != frame) {
                     continue;
                 }
