@@ -91,15 +91,15 @@ public:
     }
 
 private:
-    std::mutex map_mutex_;
+    std::mutex map_mutex_; // 互斥锁
 
     KeyFrames keyframes_; // 包含诸多关键帧
-    LandMarks landmarks_; // 包含诸多特征点
+    LandMarks landmarks_; // 包含诸多地图点
 
-    Frame::Ptr latest_keyframe_;
+    Frame::Ptr latest_keyframe_; // 最新关键帧
 
-    size_t window_size_{20};
-    bool is_window_full_{false};
+    size_t window_size_{20}; // 窗口大小
+    bool is_window_full_{false}; // 标志位，表示窗口是否满了
 };
 
 #endif // GVINS_MAP_H

@@ -158,25 +158,25 @@ public:
     }
 
 private:
-    std::vector<std::weak_ptr<Feature>> observations_;
+    std::vector<std::weak_ptr<Feature>> observations_; // 一个保存了所有观测到这个地图点的特征点的vector，每个特征点都是一个weak_ptr，表示这个特征点可能已经不存在了
 
-    std::mutex mappoint_mutex_;
-    bool isneedupdate_{false};
+    std::mutex mappoint_mutex_;   // 地图点锁
+    bool isneedupdate_{false}; // 判定该地图点是否需要更新，默认为false
 
-    Vector3d pos_, pos_tmp_;
+    Vector3d pos_, pos_tmp_; // 分别表示地图点的位置和临时位置
 
     // 参考帧中的深度
-    double depth_{DEFAULT_DEPTH}, depth_tmp_{DEFAULT_DEPTH};
-    cv::Point2f ref_frame_keypoint_, ref_frame_keypoint_tmp_;
-    std::weak_ptr<Frame> ref_frame_, ref_frame_tmp_;
+    double depth_{DEFAULT_DEPTH}, depth_tmp_{DEFAULT_DEPTH}; // 分别表示地图点的深度和临时深度，初始化为默认深度
+    cv::Point2f ref_frame_keypoint_, ref_frame_keypoint_tmp_; // 两个二维点，分别表示在参考帧中地图点对应的特征点的像素坐标和临时像素坐标
+    std::weak_ptr<Frame> ref_frame_, ref_frame_tmp_; // 两个指向Frame的weak_ptr，分别表示地图点的参考帧和临时参考帧
 
-    int optimized_times_;
-    int used_times_;
-    int observed_times_;
-    bool isoutlier_;
+    int optimized_times_; // 表示地图点被优化的次数
+    int used_times_; // 表示地图点被使用的次数
+    int observed_times_; // 表示地图点被观测的次数
+    bool isoutlier_; // 表示地图点是否是一个异常值
 
-    ulong id_;
-    MapPointType mappoint_type_{MAPPOINT_NONE}, mappoint_type_tmp_{MAPPOINT_NONE};
+    ulong id_; //表示地图点的ID
+    MapPointType mappoint_type_{MAPPOINT_NONE}, mappoint_type_tmp_{MAPPOINT_NONE}; // 分别表示地图点的类型和临时类型，初始化为MAPPOINT_NONE
 };
 
 #endif // GVINS_MAPPOINT_H

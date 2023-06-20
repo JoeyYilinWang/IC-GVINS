@@ -172,7 +172,7 @@ private:
 
     int keyframe_state_{KEYFRAME_NORMAL}; // 关键帧状态初始化为一般关键帧
 
-    std::mutex frame_mutex_;
+    std::mutex frame_mutex_; // 图像帧锁
 
     ulong id_; // 该帧id
     ulong keyframe_id_; // 关键帧id
@@ -180,15 +180,22 @@ private:
     double stamp_; // 时间戳
     double td_{0}; // 时间延迟
 
-    Pose pose_; // 
+    Pose pose_; // 位姿
 
-    Mat image_, raw_image_;
+    Mat image_, raw_image_; // 图像和原始图像
 
-    bool iskeyframe_;
+    bool iskeyframe_; // 是否为关键帧
 
-    std::unordered_map<ulong, Feature::Ptr> features_;
-    vector<std::shared_ptr<MapPoint>> unupdated_mappoints_;
+    std::unordered_map<ulong, Feature::Ptr> features_; // 特征点集合
+    vector<std::shared_ptr<MapPoint>> unupdated_mappoints_; // 未更新的地图点
 };
+
+/** 上述未更新的地图点是指该帧与参考帧进行特征匹配、三角化得到的地图点。
+ *  然而，这些新生成的地图点可能并不准确，所以在真正纳入地图点之前，需要等待后续一系列验证操作和优化操作。这个过程可能包括：
+ *  1. 对新的地图点的视差进行检查（如果没有足够的视差，则地图点的深度可能估计不准确）
+ *  2. 相邻帧可视性检查（如果地图点不能在多帧图像被观测到，则该点极有可能是噪声点或其他错误点）
+ *  所以这些未更新地图点是由图像帧的特征点生成的，但还未归到真正地图点中。
+ * /
 
 
 #endif // GVINS_FRAME_H

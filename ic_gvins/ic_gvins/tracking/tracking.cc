@@ -50,19 +50,20 @@ Tracking::Tracking(Camera::Ptr camera, Map::Ptr map, Drawer::Ptr drawer, const s
     std::vector<double> vecdata;
     config = YAML::LoadFile(configfile);
 
-    track_check_histogram_ = config["track_check_histogram"].as<bool>();
-    track_min_parallax_    = config["track_min_parallax"].as<double>();
-    track_max_features_    = config["track_max_features"].as<int>();
-    track_max_interval_    = config["track_max_interval"].as<double>();
+    track_check_histogram_ = config["track_check_histogram"].as<bool>(); // 配置文件中这里设置为了false
+    track_min_parallax_    = config["track_min_parallax"].as<double>(); // 关键帧最小像素视差设置为20
+    track_max_features_    = config["track_max_features"].as<int>(); // 最大提取特征点数量为200
+    track_max_interval_    = config["track_max_interval"].as<double>(); // 最大的关键帧间隔设置为0.5秒
     track_max_interval_ *= 0.95; // 错开整时间间隔
 
-    is_use_visualization_   = config["is_use_visualization"].as<bool>();
-    reprojection_error_std_ = config["reprojection_error_std"].as<double>();
+    is_use_visualization_   = config["is_use_visualization"].as<bool>(); // 开启可视化
+    reprojection_error_std_ = config["reprojection_error_std"].as<double>(); // 重投影误差设置为1.5用于优化和排除离群点
 
     // 直方图均衡化
     clahe_ = cv::createCLAHE(3.0, cv::Size(21, 21));
 
     // 分块索引
+    // lround为四舍五入操作符
     block_cols_ = static_cast<int>(lround(camera_->width() / TRACK_BLOCK_SIZE));
     block_rows_ = static_cast<int>(lround(camera_->height() / TRACK_BLOCK_SIZE));
     block_cnts_ = block_cols_ * block_rows_;
@@ -73,38 +74,46 @@ Tracking::Tracking(Camera::Ptr camera, Map::Ptr map, Drawer::Ptr drawer, const s
     block_indexs_.emplace_back(std::make_pair(col, row));
     for (int i = 0; i < block_rows_; i++) {
         for (int j = 0; j < block_cols_; j++) {
-            block_indexs_.emplace_back(std::make_pair(col * j, row * i));
+            block_indexs_.emplace_back(std::make_pair(col * j, row * i)); // 得到诸多分块的行列索引
         }
     }
 
     // 每个分块提取的角点数量
-    track_max_block_features_ =
+    track_max_block_features_ = 
         static_cast<int>(lround(static_cast<double>(track_max_features_) / static_cast<double>(block_cnts_)));
 
     // 每个格子的提取特征数量平方面积为格子面积的 2/3
     track_min_pixel_distance_ = static_cast<int>(round(TRACK_BLOCK_SIZE / sqrt(track_max_block_features_ * 1.5)));
 }
 
+// 计算直方图
 double Tracking::calculateHistigram(const Mat &image) {
-    Mat histogram;
-    int channels[]         = {0};
-    int histsize           = 256;
-    float range[]          = {0, 256};
-    const float *histrange = {range};
-    bool uniform = true, accumulate = false;
+    Mat histogram; 
+    int channels[]         = {0}; // 因为是灰度图像，所以通道只有一个，标志为0
+    int histsize           = 256; // 因为是通道为1，所以直方图维度也是一维的，而且直方图的bin数量为256
+    float range[]          = {0, 256}; // 设置像素统计范围，这里设置为0到256（实际上应该为0到255，但也无伤大雅）
+    const float *histrange = {range}; 
+    bool uniform = true, accumulate = false; // uniform设置为true表示bin是均匀的。accumulate设置为false表示在每次调用时我们都要清空不累加
 
+    // 根据上述参数，可以得到像素灰度的统计直方图histogram了
     cv::calcHist(&image, 1, channels, Mat(), histogram, 1, &histsize, &histrange, uniform, accumulate);
 
-    double hist = 0;
+    double hist = 0; 
+    // 遍历直方图，一条for循环完成以下任务
+    // k / 256，将灰度进行归一化
+    // 将bin（k）上统计的像素数量与上面归一化值相乘
+    // 遍历所有bin，完成上述任务，然后再相加。就得到了针对该图像所有像素的归一化灰度值之和
     for (int k = 0; k < 256; k++) {
         hist += histogram.at<float>(k) * (float) k / 256.0;
     }
+    // 除以总像素数量，就得到了平均归一化灰度值
     hist /= (image.cols * image.rows);
 
     return hist;
 }
 
 bool Tracking::preprocessing(Frame::Ptr frame) {
+    // 当处理该帧时，首先默认将其认为是非关键帧
     isnewkeyframe_ = false;
 
     // 彩色转灰度
@@ -112,7 +121,7 @@ bool Tracking::preprocessing(Frame::Ptr frame) {
         cv::cvtColor(frame->image(), frame->image(), cv::COLOR_BGR2GRAY);
     }
 
-    if (track_check_histogram_) {
+    if (track_check_histogram_) { // 由于已设置为false，因此不检查直方图
         // 计算直方图参数
         double hist = calculateHistigram(frame->image());
         if (histogram_ != 0) {
@@ -121,9 +130,9 @@ bool Tracking::preprocessing(Frame::Ptr frame) {
             // 图像直方图变化比例大于10%, 则跳过当前帧
             if (rate > 0.1) {
                 LOGW << "Histogram change too large at " << Logging::doubleData(frame->stamp()) << " with " << rate;
-                passed_cnt_++;
+                passed_cnt_++; // 跳过帧的数量+1
 
-                if (passed_cnt_ > 1) {
+                if (passed_cnt_ > 1) { 
                     histogram_ = 0;
                 }
                 return false;
@@ -135,7 +144,7 @@ bool Tracking::preprocessing(Frame::Ptr frame) {
     frame_pre_ = frame_cur_;
     frame_cur_ = std::move(frame);
 
-    // 直方图均衡化
+    // 直方图均衡化，增强图像对比度
     clahe_->apply(frame_cur_->image(), frame_cur_->image());
 
     return true;
@@ -576,14 +585,15 @@ bool Tracking::trackReferenceFrame() {
 void Tracking::featuresDetection(Frame::Ptr &frame, bool ismask) {
 
     // 特征点足够则无需提取
+    // 要注意的是，pts2d_ref_的点也属于该帧的特征点么？
     int num_features = static_cast<int>(frame->features().size() + pts2d_ref_.size());
     if (num_features > (track_max_features_ - 5)) {
         return;
     }
 
     // 初始化分配内存
-    int features_cnts[block_cnts_];
-    vector<vector<cv::Point2f>> block_features(block_cnts_);
+    int features_cnts[block_cnts_]; // 用于统计各区块特征点的数量
+    vector<vector<cv::Point2f>> block_features(block_cnts_); // 储存所有区块特征点
     // 必要的分配内存, 否则并行会造成数据结构错乱
     for (auto &block : block_features) {
         block.reserve(track_max_block_features_);
@@ -610,6 +620,7 @@ void Tracking::featuresDetection(Frame::Ptr &frame, bool ismask) {
     if (ismask) {
         // 已经跟踪上的点
         for (const auto &pt : frame_cur_->features()) {
+            // 在mask图像上以特定圆心（pt.second->keypoint()）和半径（track_min_pixel_distance_）绘制一个填充颜色为黑色的园
             cv::circle(mask, pt.second->keyPoint(), track_min_pixel_distance_, 0, cv::FILLED);
         }
 
@@ -624,9 +635,10 @@ void Tracking::featuresDetection(Frame::Ptr &frame, bool ismask) {
     cv::Size zero_zone         = cv::Size(-1, -1);
     cv::TermCriteria term_crit = cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 20, 0.01);
 
+    // 定义一个并行处理函数，使用TBB（Threading Building Blocks）库进行多线程处理
     auto tracking_function = [&](const tbb::blocked_range<int> &range) {
         for (int k = range.begin(); k != range.end(); k++) {
-            int blocl_track_num = track_max_block_features_ - features_cnts[k];
+            int blocl_track_num = track_max_block_features_ - features_cnts[k]; // 计算每个块除已有的特征点外还需要多少特征点
             if (blocl_track_num > 0) {
 
                 int cols = k % block_cols_;
@@ -636,27 +648,32 @@ void Tracking::featuresDetection(Frame::Ptr &frame, bool ismask) {
                 int col_end = col_sta + block_indexs_[0].first;
                 int row_sta = rows * block_indexs_[0].second;
                 int row_end = row_sta + block_indexs_[0].second;
-                if (k != (block_cnts_ - 1)) {
+                if (k != (block_cnts_ - 1)) { // 如果k没到末尾，则区块尾部少五个元素
                     col_end -= 5;
                     row_end -= 5;
                 }
-
+                // 提取区块和掩码
                 Mat block_image = frame->image().colRange(col_sta, col_end).rowRange(row_sta, row_end);
                 Mat block_mask  = mask.colRange(col_sta, col_end).rowRange(row_sta, row_end);
 
+                // 使用Shi-Tomasi算法检测角点
+                // 这些检测到的角点被存储在block_features[k]中
                 cv::goodFeaturesToTrack(block_image, block_features[k], blocl_track_num, 0.01,
                                         track_min_pixel_distance_, block_mask);
                 if (!block_features[k].empty()) {
-                    // 获取亚像素角点
+                    // 被用于优化block_image图像中检测到的角点位置，优化后的角点位置被存储在block_features[k]中。
+                    // 这样可以提高角点位置的精度，有助于提高后续处理（如光流跟踪，图像配准等）的准确性
                     cv::cornerSubPix(block_image, block_features[k], win_size, zero_zone, term_crit);
                 }
             }
         }
     };
+
+    // 将图像的处理任务划分为多个小任务，然后在多个线程上并行处理这些小任务，从而提高了处理效率。这种方法尤其适合在多核处理器上处理大规模的数据
     tbb::parallel_for(tbb::blocked_range<int>(0, block_cnts_), tracking_function);
 
     // 调整角点的坐标
-    int num_new_features = 0;
+    int num_new_features = 0; // 用于统计新加特征点的数量
 
     // 连续跟踪的角点, 未三角化的点
     if (!ismask) {
@@ -670,17 +687,18 @@ void Tracking::featuresDetection(Frame::Ptr &frame, bool ismask) {
         col = k % block_cols_;
         row = k / block_cols_;
 
+        // 由于block_features[k]保存的都是各区块上的特征点坐标，因此需要恢复到原始坐标
         for (const auto &point : block_features[k]) {
             float x = static_cast<float>(col * block_indexs_[0].first) + point.x;
             float y = static_cast<float>(row * block_indexs_[0].second) + point.y;
 
             auto pts2d = cv::Point2f(x, y);
-            pts2d_ref_.push_back(pts2d);
-            pts2d_new_.push_back(pts2d);
-            pts2d_ref_frame_.push_back(frame);
-            velocity_ref_.emplace_back(0, 0);
+            pts2d_ref_.push_back(pts2d); // 新特征点压入pts2d_ref_
+            pts2d_new_.push_back(pts2d); // 新特征点压入pts2d_new_
+            pts2d_ref_frame_.push_back(frame); // 将当前帧作为参考帧
+            velocity_ref_.emplace_back(0, 0); // 为每个特征点初始化2d速度
 
-            num_new_features++;
+            num_new_features++; 
         }
     }
 
@@ -714,6 +732,7 @@ bool Tracking::triangulation() {
 
     // 计算使用齐次坐标, 相机坐标系
     vector<uint8_t> status;
+    // 以当前跟踪上的特征点为准
     for (size_t k = 0; k < pts2d_cur_.size(); k++) {
         auto pp0 = pts2d_ref_undis[k];
         auto pp1 = pts2d_cur_undis[k];
@@ -801,7 +820,7 @@ void Tracking::triangulatePoint(const Eigen::Matrix<double, 3, 4> &pose0, const 
                                 const Eigen::Vector3d &pc0, const Eigen::Vector3d &pc1, Eigen::Vector3d &pw) {
     Eigen::Matrix4d design_matrix = Eigen::Matrix4d::Zero();
 
-    design_matrix.row(0) = pc0[0] * pose0.row(2) - pose0.row(0);
+    design_matrix.row(0) = pc0[0] * pose0.row(2) - pose0.row(0);    
     design_matrix.row(1) = pc0[1] * pose0.row(2) - pose0.row(1);
     design_matrix.row(2) = pc1[0] * pose1.row(2) - pose1.row(0);
     design_matrix.row(3) = pc1[1] * pose1.row(2) - pose1.row(1);
@@ -809,6 +828,7 @@ void Tracking::triangulatePoint(const Eigen::Matrix<double, 3, 4> &pose0, const 
     Eigen::Vector4d point = design_matrix.jacobiSvd(Eigen::ComputeFullV).matrixV().rightCols<1>();
     pw                    = point.head<3>() / point(3);
 }
+
 
 bool Tracking::isGoodToTrack(const cv::Point2f &pp, const Pose &pose, const Vector3d &pw, double scale,
                              double depth_scale) {
@@ -858,6 +878,7 @@ Eigen::Matrix4d Tracking::pose2Tcw(const Pose &pose) {
     return Tcw;
 }
 
+// 计算视差
 double Tracking::keyPointParallax(const cv::Point2f &pp0, const cv::Point2f &pp1, const Pose &pose0,
                                   const Pose &pose1) {
     Vector3d pc0 = camera_->pixel2cam(pp0);

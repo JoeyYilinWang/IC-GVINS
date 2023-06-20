@@ -127,7 +127,7 @@ void Camera::undistortImage(const Mat &src, Mat &dst) {
     cv::remap(src, dst, undissrc_, undisdst_, cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar());
 }
 
-// 像素坐标恢复相机坐标
+// 像素坐标恢复到归一化相机坐标
 Vector3d Camera::pixel2cam(const cv::Point2f &pixel) const {
     double y = (pixel.y - cy_) / fy_;
     double x = (pixel.x - cx_ - skew_ * y) / fx_;

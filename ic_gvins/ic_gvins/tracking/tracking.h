@@ -55,7 +55,7 @@ public:
     bool isNewKeyFrame() const {
         return isnewkeyframe_;
     }
-
+    
     bool isGoodToTrack(const cv::Point2f &pp, const Pose &pose, const Vector3d &pw, double scale,
                        double depth_scale = 1.0);
     static Eigen::Matrix4d pose2Tcw(const Pose &pose);
@@ -81,14 +81,19 @@ private:
 
     keyFrameState checkKeyFrameSate();
 
+    // 返回参考关键点视差
     int parallaxFromReferenceKeyPoints(const vector<cv::Point2f> &ref, const vector<cv::Point2f> &cur,
                                        double &parallax);
+    // 返回参考地图点视差                                
     int parallaxFromReferenceMapPoints(double &parallax);
+
 
     double keyPointParallax(const cv::Point2f &pp0, const cv::Point2f &pp1, const Pose &pose0, const Pose &pose1);
 
+    // 特征检测
     void featuresDetection(Frame::Ptr &frame, bool ismask = true);
 
+    // 三角化
     bool triangulation();
     static void triangulatePoint(const Eigen::Matrix<double, 3, 4> &pose0, const Eigen::Matrix<double, 3, 4> &pose1,
                                  const Eigen::Vector3d &pc0, const Eigen::Vector3d &pc1, Eigen::Vector3d &pw);

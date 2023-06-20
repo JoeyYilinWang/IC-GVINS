@@ -106,15 +106,15 @@ public:
     }
 
 private:
-    std::weak_ptr<Frame> frame_;
-    std::weak_ptr<MapPoint> mappoint_;
+    std::weak_ptr<Frame> frame_; // 特征点对应的图像帧
+    std::weak_ptr<MapPoint> mappoint_; // 特征点对应的地图点
 
-    cv::Point2f keypoint_, distorted_keypoint_;
-    Vector3d velocity_{0, 0, 0};
+    cv::Point2f keypoint_, distorted_keypoint_; // 原始点坐标，经过去畸变的点坐标
+    Vector3d velocity_{0, 0, 0}; // 特征点对应的像素速度
+ 
+    bool isoutlier_; // 标志位，表示特征点是否为异常点
 
-    bool isoutlier_;
-
-    FeatureType type_;
+    FeatureType type_; // 特征点类型变量
 };
 
 #endif // GVINS_FEATURE_H
