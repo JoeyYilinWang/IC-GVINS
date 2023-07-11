@@ -469,7 +469,7 @@ bool Tracking::trackReferenceFrame() {
         LOGW << "No new feature in previous frame " << Logging::doubleData(frame_cur_->stamp());
         return false;
     }
-
+s
     // 补偿旋转预测
     Matrix3d r_cur_pre = frame_cur_->pose().R.transpose() * frame_pre_->pose().R;
 
@@ -482,7 +482,7 @@ bool Tracking::trackReferenceFrame() {
         Vector3d pc_pre = camera_->pixel2cam(pp_pre);
         Vector3d pc_cur = r_cur_pre * pc_pre;
 
-        // 添加畸变
+        // 加畸变并投影
         auto pp_cur = camera_->distortCameraPoint(pc_cur);
         pts2d_cur_.emplace_back(pp_cur);
     }
@@ -492,7 +492,7 @@ bool Tracking::trackReferenceFrame() {
     vector<float> error;
     vector<cv::Point2f> pts2d_reverse = pts2d_new_;
 
-    // 正向光流
+    // 根据前一帧frame_pre_的2d特征点的初始位置pts2d_new_追踪当前帧frame_cur_的特征点新位置pts2d_cur_
     cv::calcOpticalFlowPyrLK(frame_pre_->image(), frame_cur_->image(), pts2d_new_, pts2d_cur_, status, error,
                              cv::Size(21, 21), TRACK_PYRAMID_LEVEL,
                              cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, 0.01),
@@ -513,10 +513,10 @@ bool Tracking::trackReferenceFrame() {
             status[k] = 0;
         }
     }
-    reduceVector(pts2d_ref_, status);
-    reduceVector(pts2d_cur_, status);
-    reduceVector(pts2d_new_, status);
-    reduceVector(pts2d_ref_frame_, status);
+    reduceVector(pts2d_ref_, status); // 在参考点中剔除跟踪失败的
+    reduceVector(pts2d_cur_, status); // 剔除当前帧跟踪失败的
+    reduceVector(pts2d_new_, status); // 剔除前一帧跟踪失败的
+    reduceVector(pts2d_ref_frame_, status); 
     reduceVector(velocity_ref_, status);
 
     if (pts2d_ref_.empty()) {
@@ -585,7 +585,8 @@ bool Tracking::trackReferenceFrame() {
 void Tracking::featuresDetection(Frame::Ptr &frame, bool ismask) {
 
     // 特征点足够则无需提取
-    // 要注意的是，pts2d_ref_的点也属于该帧的特征点么？
+    // 要注意的是，pts2d_ref_的点并不特别属于该帧，pts2d_ref_表示所有参考帧对应的某些特征点，而且与后面的pts2d_cur_、pts2d_new_一一对应的
+    // 因为当前帧
     int num_features = static_cast<int>(frame->features().size() + pts2d_ref_.size());
     if (num_features > (track_max_features_ - 5)) {
         return;
@@ -609,6 +610,7 @@ void Tracking::featuresDetection(Frame::Ptr &frame, bool ismask) {
         row = int(feature.second->keyPoint().y / (float) block_indexs_[0].second);
         features_cnts[row * block_cols_ + col]++;
     }
+    // pts2d_new_表示三角化后剩下的点
     for (auto &pts2d : pts2d_new_) {
         col = int(pts2d.x / (float) block_indexs_[0].first);
         row = int(pts2d.y / (float) block_indexs_[0].second);
@@ -619,12 +621,14 @@ void Tracking::featuresDetection(Frame::Ptr &frame, bool ismask) {
     Mat mask = Mat(camera_->size(), CV_8UC1, 255);
     if (ismask) {
         // 已经跟踪上的点
+        // 要注意的是，该蒙版是以当前帧存在的特征点进行处理的
         for (const auto &pt : frame_cur_->features()) {
             // 在mask图像上以特定圆心（pt.second->keypoint()）和半径（track_min_pixel_distance_）绘制一个填充颜色为黑色的园
             cv::circle(mask, pt.second->keyPoint(), track_min_pixel_distance_, 0, cv::FILLED);
         }
 
         // 还在跟踪的点
+        // 同样，pts_new_也是pts_cur_三角化之后剩下的点
         for (const auto &pts2d : pts2d_new_) {
             cv::circle(mask, pts2d, track_min_pixel_distance_, 0, cv::FILLED);
         }
@@ -705,6 +709,10 @@ void Tracking::featuresDetection(Frame::Ptr &frame, bool ismask) {
     LOGI << "Add " << num_new_features << " new features to " << num_features;
 }
 
+/**
+ * @brief 三角化
+ * @return 三角化是否成功的判断
+ */
 bool Tracking::triangulation() {
     // 无跟踪上的特征
     if (pts2d_cur_.empty()) {
@@ -740,7 +748,6 @@ bool Tracking::triangulation() {
         // 参考帧
         auto frame_ref = pts2d_ref_frame_[k];
         if (frame_ref->id() > frame_ref_->id()) {
-            // 中途添加的特征, 修改参考帧
             pts2d_ref_frame_[k] = frame_cur_;
             pts2d_ref_[k]       = pts2d_cur_[k];
             status.push_back(1);
@@ -783,23 +790,27 @@ bool Tracking::triangulation() {
         // 新的路标点, 加入新的观测, 路标点加入地图
         auto pc       = camera_->world2cam(pw, frame_ref->pose());
         double depth  = pc.z();
+        // 地图点以参考帧为关键帧
         auto mappoint = MapPoint::createMapPoint(frame_ref, pw, pts2d_ref_undis[k], depth, MAPPOINT_TRIANGULATED);
-
+    
+        // 初始化当前帧的特征点
         auto feature = Feature::createFeature(frame_cur_, velocity_cur_[k], pts2d_cur_undis[k], pts2d_cur_[k],
                                               FEATURE_TRIANGULATED);
-        mappoint->addObservation(feature);
-        feature->addMapPoint(mappoint);
-        frame_cur_->addFeature(mappoint->id(), feature);
-        mappoint->increaseUsedTimes();
+        mappoint->addObservation(feature); // 增加当前帧特征点的观测
+        feature->addMapPoint(mappoint); // 以该地图点作为特征点的对应三维点
+        frame_cur_->addFeature(mappoint->id(), feature); // 当前图像帧增加特征点
+        mappoint->increaseUsedTimes(); // 地图点增加使用次数
 
+        // 初始化参考帧的特征点
         feature = Feature::createFeature(frame_ref, velocity_ref_[k], pts2d_ref_undis[k], pts2d_ref_[k],
                                          FEATURE_TRIANGULATED);
-        mappoint->addObservation(feature);
-        feature->addMapPoint(mappoint);
-        frame_ref->addFeature(mappoint->id(), feature);
-        mappoint->increaseUsedTimes();
+        mappoint->addObservation(feature); // 增加参考帧特征点的观测
+        feature->addMapPoint(mappoint); // 以地图点作为特征点对应的三维点
+        frame_ref->addFeature(mappoint->id(), feature); // 将参考帧增加特征点
+        mappoint->increaseUsedTimes(); // 地图点增加使用次数
 
         // 新三角化的路标点缓存到最新的关键帧, 不直接加入地图
+        // 这样做的好处是有助于减少全局地图中的噪声，因为在添加路标点到全局地图之前，我们可以在当前帧中对这些新的路标点进行额外的检查或过滤。
         frame_cur_->addNewUnupdatedMappoint(mappoint);
     }
 
@@ -809,13 +820,21 @@ bool Tracking::triangulation() {
     reduceVector(pts2d_cur_, status);
     reduceVector(velocity_ref_, status);
 
-    pts2d_new_ = pts2d_cur_;
+    pts2d_new_ = pts2d_cur_; // 将成功三角化的点、三角化错误的点以及过时的关键帧特征点去除之后剩下的点
 
     LOGI << "Triangulate " << num_succeeded << " 3D points with " << pts2d_cur_.size() << " left, " << num_reset
          << " reset, " << num_outtime << " outtime and " << num_outlier << " outliers";
     return true;
 }
 
+/**
+ * @brief 基于两个相机视图的三角化，计算三维点在世界坐标系下的坐标
+ * @param pose0 第一个相机视图的位姿
+ * @param pose1 第二个相机视图的位姿
+ * @param pc0 第一个相机视角下的三维点相机坐标系的归一化坐标
+ * @param pc1 第二个相机视角下的三维点相机坐标系的归一化坐标
+ * @param pw (output)世界坐标系下的坐标
+ */
 void Tracking::triangulatePoint(const Eigen::Matrix<double, 3, 4> &pose0, const Eigen::Matrix<double, 3, 4> &pose1,
                                 const Eigen::Vector3d &pc0, const Eigen::Vector3d &pc1, Eigen::Vector3d &pw) {
     Eigen::Matrix4d design_matrix = Eigen::Matrix4d::Zero();
@@ -829,7 +848,15 @@ void Tracking::triangulatePoint(const Eigen::Matrix<double, 3, 4> &pose0, const 
     pw                    = point.head<3>() / point(3);
 }
 
-
+/**
+ * @brief 检测像素点是否适合追踪。通常在视觉跟踪、三维重建和SLAM等计算机视觉任务是必要的。目的是排除一些可能引起误导或错误的点，如深度不正确或重投影误差过大的点
+ * @param pp 像素点坐标
+ * @param pose 位姿
+ * @param pw 像素点对应的世界坐标系的坐标
+ * @param scale 尺度因子，与重投影误差标准差阈值相乘
+ * @param depth_scale 尺度因子，与深度最远阈值相乘
+ * @return 判断量
+ */
 bool Tracking::isGoodToTrack(const cv::Point2f &pp, const Pose &pose, const Vector3d &pw, double scale,
                              double depth_scale) {
     // 当前相机坐标系
@@ -848,6 +875,11 @@ bool Tracking::isGoodToTrack(const cv::Point2f &pp, const Pose &pose, const Vect
     return true;
 }
 
+/**
+ * @brief 被用于各种需要删除向量元素的场景。例如在计算机视觉中，可能需要一些条件来删除某些特征点
+ * @param status 状态容器
+ * @param vector (intput/output)作为要被删除元素的容器输入，以及经过删除元素之后的容器输出
+ */
 template <typename T> void Tracking::reduceVector(T &vec, vector<uint8_t> status) {
     size_t index = 0;
     for (size_t k = 0; k < vec.size(); k++) {
@@ -858,16 +890,34 @@ template <typename T> void Tracking::reduceVector(T &vec, vector<uint8_t> status
     vec.resize(index);
 }
 
+// 功能：
+// 计算两像素间的距离
+// 参数：
+// pt1， pt2分别为像素点坐标
+// 返回值
+// 欧式距离
 double Tracking::ptsDistance(cv::Point2f &pt1, cv::Point2f &pt2) {
     double dx = pt1.x - pt2.x;
     double dy = pt1.y - pt2.y;
     return sqrt(dx * dx + dy * dy);
 }
 
+// 功能：
+// 判断像素点是否处于图像边缘位置上
+// 参数：
+// pts 像素点
+// 返回值
+// 判断结果bool型
 bool Tracking::isOnBorder(const cv::Point2f &pts) {
     return pts.x < 5.0 || pts.y < 5.0 || (pts.x > (camera_->width() - 5.0)) || (pts.y > (camera_->height() - 5.0));
 }
 
+// 功能：
+// 旋转与平移分离的位姿转化为变换矩阵的统一形式
+// 参数：
+// pose 旋转与平移分离的位姿形式
+// 返回值：
+// 表示位姿的变换矩阵Tcw
 Eigen::Matrix4d Tracking::pose2Tcw(const Pose &pose) {
     Eigen::Matrix4d Tcw;
     Tcw.setZero();
@@ -878,34 +928,47 @@ Eigen::Matrix4d Tracking::pose2Tcw(const Pose &pose) {
     return Tcw;
 }
 
-// 计算视差
+// 功能：
+// 计算视差（视觉差异）
+// 参数：
+// pp0与pp1为相互匹配的像素点。pose0为pp0对应的位姿，pose1位pp1对应的位姿
+// 返回值：
+// 视差
 double Tracking::keyPointParallax(const cv::Point2f &pp0, const cv::Point2f &pp1, const Pose &pose0,
                                   const Pose &pose1) {
+    // 像素值到归一化相机坐标系坐标的转换                                    
     Vector3d pc0 = camera_->pixel2cam(pp0);
     Vector3d pc1 = camera_->pixel2cam(pp1);
 
     // 补偿掉旋转
+    // 这里并没补偿位移，可能是因为作者把短时间运动形式限定为只有旋转
     Vector3d pc01 = pose1.R.transpose() * pose0.R * pc0;
 
-    // 像素大小
+    // 相差的像素大小
     return (pc01.head<2>() - pc1.head<2>()).norm() * camera_->focalLength();
 }
 
+// 功能：
+// 根据参考帧的特征点计算参考帧与当前帧的视差
+// 参数：
+// parallax(output) 视差
+// 返回值：
+// 用于计算视差的特征点对数量
 int Tracking::parallaxFromReferenceMapPoints(double &parallax) {
 
-    parallax      = 0;
-    int counts    = 0;
-    auto features = frame_ref_->features();
+    parallax      = 0; // 视差初始化为0
+    int counts    = 0; // 用于计算视差的特征点对数量初始化
+    auto features = frame_ref_->features(); // 读取当前参考帧的所有特征点
 
-    for (auto &feature : features) {
-        auto mappoint = feature.second->getMapPoint();
+    for (auto &feature : features) { 
+        auto mappoint = feature.second->getMapPoint(); // 读取特征点对应的地图点
         if (mappoint && !mappoint->isOutlier()) {
             // 取最新的一个路标点观测
-            auto observations = mappoint->observations();
+            auto observations = mappoint->observations(); // 读取该地图点的所有观测
             if (observations.empty()) {
                 continue;
             }
-            auto feat = observations.back().lock();
+            auto feat = observations.back().lock(); // 取路标点最新的观测
             if (feat && !feat->isOutlier()) {
                 auto frame = feat->getFrame();
                 if (frame && (frame == frame_cur_)) {
@@ -925,18 +988,27 @@ int Tracking::parallaxFromReferenceMapPoints(double &parallax) {
     return counts;
 }
 
+// 功能：
+// 根据参考帧对应的参考点计算，参考帧与当前帧的视差
+// 参数：
+// ref 所有参考点（不仅包含当前参考帧上的点，还包括历史参考帧上的点）
+// cur 当前帧与当前参考帧参考点匹配的特征点
+// parallax(output) 当前参考帧与当前帧的视差
+// 返回值：
+// 用于视差计算的特征点对数量
 int Tracking::parallaxFromReferenceKeyPoints(const vector<cv::Point2f> &ref, const vector<cv::Point2f> &cur,
                                              double &parallax) {
-    parallax   = 0;
-    int counts = 0;
+    parallax   = 0; // 视差初始化为0
+    int counts = 0; // 用于计算视差的参考点数量
+    // 对参考点对应的帧指针容器进行循环，如果参考点对应的帧为当前参考帧，则计算对应参考点和当前帧点的视差，并累加
     for (size_t k = 0; k < pts2d_ref_frame_.size(); k++) {
         if (pts2d_ref_frame_[k] == frame_ref_) {
             parallax += keyPointParallax(ref[k], cur[k], frame_ref_->pose(), frame_cur_->pose());
-            counts++;
+            counts++; // 累加用于视差计算的特征点对数量
         }
     }
     if (counts != 0) {
-        parallax /= counts;
+        parallax /= counts; 
     }
 
     return counts;

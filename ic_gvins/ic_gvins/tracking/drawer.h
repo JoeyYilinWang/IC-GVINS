@@ -42,17 +42,35 @@ public:
         map_ = std::move(map);
     };
     
-    // 地图
+    /**
+     * @brief 增加新地图点
+     */
     virtual void addNewFixedMappoint(Vector3d point)    = 0;
+
+    /**
+     * @brief 实际上就是更新位姿而已
+     */
     virtual void updateMap(const Eigen::Matrix4d &pose) = 0;
 
-    // 跟踪图像
+    /**
+     * @brief 更新图像，将该图像帧复制到成员变量中
+     */
     virtual void updateFrame(Frame::Ptr frame)                                            = 0;
+
+    /**
+     * @brief 更新2d地图点及对应匹配点
+    */
     virtual void updateTrackedMapPoints(vector<cv::Point2f> map, vector<cv::Point2f> matched,
                                         vector<MapPointType> mappoint_type)               = 0;
+    /**
+     * @brief 更新新的参考点及对应当前点
+     */                                     
     virtual void updateTrackedRefPoints(vector<cv::Point2f> ref, vector<cv::Point2f> cur) = 0;
 
 protected:
+    /**
+     * @brief 画跟踪图
+     */
     void drawTrackingImage(const Mat &raw, Mat &drawed);
 
 protected:

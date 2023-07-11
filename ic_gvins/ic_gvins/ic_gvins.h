@@ -23,13 +23,13 @@
 #ifndef GVINS_GVINS_H
 #define GVINS_GVINS_H
 
-#include "common/angle.h"
-#include "common/timecost.h"
-#include "fileio/filesaver.h"
-#include "tracking/drawer.h"
-#include "tracking/tracking.h"
-
-#include "factors/marginalization_info.h"
+#include "common/angle.h"  // done
+#include "common/timecost.h" // done 
+#include "fileio/filesaver.h" // done
+#include "tracking/drawer.h" // done 
+#include "tracking/tracking.h" // mostly done
+ 
+#include "factors/marginalization_info.h" // analysing...
 #include "factors/reprojection_factor.h"
 #include "preintegration/preintegration.h"
 

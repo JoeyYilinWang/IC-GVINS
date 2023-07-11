@@ -30,21 +30,21 @@ using Eigen::Quaterniond;
 using Eigen::Vector3d;
 
 typedef struct GNSS {
-    double time;
+    double time; // 时间戳
 
-    Vector3d blh;
-    Vector3d std;
+    Vector3d blh; // 经纬高
+    Vector3d std; // 标准差，分别表示经纬高估计的精确度
 
-    bool isyawvalid;
-    double yaw;
+    bool isyawvalid; // yaw角是否有效
+    double yaw; //得到的yaw角
 } GNSS;
 
-typedef struct PVA {
-    double time;
-
-    Vector3d blh;
-    Vector3d vel;
-    Vector3d att;
+typedef struct PVA { // position, velocity, attitude
+    double time; // 时间戳
+ 
+    Vector3d blh; // 经纬高 
+    Vector3d vel; // 三维速度
+    Vector3d att; // 姿态
 } PVA;
 
 typedef struct IMU {
@@ -54,12 +54,12 @@ typedef struct IMU {
     Vector3d dtheta; // 角度增量
     Vector3d dvel; // 速度增量
 
-    double odovel;
+    double odovel; // 里程计速度
 } IMU;
 
 typedef struct Pose {
-    Matrix3d R;
-    Vector3d t;
+    Matrix3d R; // 旋转
+    Vector3d t; // 平移
 } Pose;
 
 #endif // TYPES_H

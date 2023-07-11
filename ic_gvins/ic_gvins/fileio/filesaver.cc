@@ -53,7 +53,7 @@ void FileSaver::dumpn(const vector<vector<double>> &data) {
 void FileSaver::dump_(const vector<double> &data) {
     if (filetype_ == TEXT) {
         string line;
-
+        
         // 定义字符串格式
         constexpr absl::string_view format = "%-15.9lf ";
 

@@ -32,18 +32,19 @@ using std::vector;
 class FileBase {
 
 public:
+    // 为文件定义枚举类，文本文件为0，二进制文件为1
     enum FileType {
         TEXT   = 0,
         BINARY = 1,
     };
 
-    FileBase() = default;
-    ~FileBase() {
-        if (isOpen())
+    FileBase() = default; // 使用系统提供的默认构造函数
+    ~FileBase() { // 析构函数将文件关闭
+        if (isOpen()) 
             filefp_.close();
     }
 
-    void close() {
+    void close() { 
         filefp_.close();
     }
 
@@ -51,18 +52,19 @@ public:
         return filefp_.is_open();
     }
 
-    bool isEof() {
+    bool isEof() { // 判断是否到达文件末尾
         return filefp_.eof();
     }
 
-    std::fstream &fstream() {
+    std::fstream &fstream() { // 返回文件流本身
         return filefp_;
     }
 
-    int columns() const {
+    int columns() const { // 返回文件中文字的列数
         return columns_;
     }
-
+    
+    // 清空缓冲区，本质上是将缓冲区中的内容立即输出到文件/屏幕中
     void flush() {
         filefp_.flush();
     }

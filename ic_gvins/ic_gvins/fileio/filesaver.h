@@ -48,10 +48,20 @@ public:
 
     bool open(const string &filename, int columns, int filetype = TEXT);
 
+    /**
+     * @brief 将data数据解释为一行字符串，并将该字符串写入到文件中
+     */
     void dump(const vector<double> &data);
+    /**
+     * @brief 将数据解释为多行字符串，并将多行字符串写入到文件中
+     */
     void dumpn(const vector<vector<double>> &data);
 
 private:
+
+    /**
+     * @brief 将data数据解释为一行字符串，并将该行字符串写入到文件中
+     */
     void dump_(const vector<double> &data);
 };
 

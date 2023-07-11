@@ -55,7 +55,7 @@ public:
     bool isNewKeyFrame() const {
         return isnewkeyframe_;
     }
-    
+
     bool isGoodToTrack(const cv::Point2f &pp, const Pose &pose, const Vector3d &pw, double scale,
                        double depth_scale = 1.0);
     static Eigen::Matrix4d pose2Tcw(const Pose &pose);
@@ -131,7 +131,11 @@ private:
     // 特征点
     // For feature tracking
     vector<cv::Point2f> pts2d_cur_, pts2d_new_, pts2d_ref_;
-    vector<Frame::Ptr> pts2d_ref_frame_;
+
+    // pts2d_ref_：这个vector存储的是参考帧中的二维特征点的位置，这些点可能在前一帧、关键帧或者其他的参考帧中被检测到。
+    // pts2d_ref_frame_：这个vector存储的是每个参考特征点对应的帧的指针。也就是说，pts2d_ref_中的每个点对应一个帧，这个帧是这个点最初被检测到的帧。这样做的原因是在SLAM系统中，一个特征点可能在多帧图像中都可以看到，所以需要记录每个特征点最初被检测到的帧的信息。
+    // 因此，pts2d_ref_frame_和pts2d_ref_一般来说是一一对应的，它们的大小应该是相同的。对于同一索引i，pts2d_ref_[i]是参考特征点的位置，而pts2d_ref_frame_[i]是这个特征点最初被检测到的帧的指针
+    vector<Frame::Ptr> pts2d_ref_frame_; // 存储了每个参考点对应的帧指针
 
     vector<Eigen::Vector2d> velocity_ref_, velocity_cur_;
 

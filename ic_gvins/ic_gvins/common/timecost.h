@@ -37,7 +37,7 @@ public:
         start_     = absl::Now();
         is_finish_ = false;
     }
-
+    
     void finish() {
         end_       = absl::Now();
         duration_  = end_ - start_;

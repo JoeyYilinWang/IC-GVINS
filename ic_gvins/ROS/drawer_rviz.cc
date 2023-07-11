@@ -35,7 +35,7 @@ DrawerRviz::DrawerRviz(ros::NodeHandle &nh)
     , isframerdy_(false)
     , ismaprdy_(false) {
 
-    frame_id_ = "world";
+    frame_id_ = "world"; // 将参考坐标系设定为世界坐标系
 
     pose_pub_           = nh.advertise<nav_msgs::Odometry>("pose", 2);
     path_pub_           = nh.advertise<nav_msgs::Path>("path", 2);
@@ -49,6 +49,9 @@ void DrawerRviz::setFinished() {
     update_sem_.notify_one();
 }
 
+/**
+ * @brief 启动画图
+ */
 void DrawerRviz::run() {
 
     while (!isfinished_) {
@@ -74,6 +77,7 @@ void DrawerRviz::run() {
     }
 }
 
+// 更新处理图像帧
 void DrawerRviz::updateFrame(Frame::Ptr frame) {
     std::unique_lock<std::mutex> lock(image_mutex_);
 
@@ -83,6 +87,7 @@ void DrawerRviz::updateFrame(Frame::Ptr frame) {
     update_sem_.notify_one();
 }
 
+// 更新跟踪的地图点和匹配点
 void DrawerRviz::updateTrackedMapPoints(vector<cv::Point2f> map, vector<cv::Point2f> matched,
                                         vector<MapPointType> mappoint_type) {
     std::unique_lock<std::mutex> lock(image_mutex_);
@@ -91,20 +96,26 @@ void DrawerRviz::updateTrackedMapPoints(vector<cv::Point2f> map, vector<cv::Poin
     mappoint_type_ = std::move(mappoint_type);
 }
 
+/**
+ * @brief 更新跟踪的参考点
+ */
 void DrawerRviz::updateTrackedRefPoints(vector<cv::Point2f> ref, vector<cv::Point2f> cur) {
     std::unique_lock<std::mutex> lock(image_mutex_);
     pts2d_ref_ = std::move(ref);
     pts2d_cur_ = std::move(cur);
 }
 
+/**
+ * @brief 发布跟踪的图像
+ */
 void DrawerRviz::publishTrackingImage() {
     std::unique_lock<std::mutex> lock(image_mutex_);
 
     Mat drawed;
     drawTrackingImage(raw_image_, drawed);
-
+    
     sensor_msgs::Image image;
-
+    
     image.header.stamp    = ros::Time::now();
     image.header.frame_id = frame_id_;
     image.encoding        = sensor_msgs::image_encodings::BGR8;
@@ -119,6 +130,9 @@ void DrawerRviz::publishTrackingImage() {
     track_image_pub_.publish(image);
 }
 
+/**
+ * @brief 发布窗口内的路标点，也发布新的地图点
+ */
 void DrawerRviz::publishMapPoints() {
     std::unique_lock<std::mutex> lock(map_mutex_);
 
@@ -128,10 +142,12 @@ void DrawerRviz::publishMapPoints() {
     sensor_msgs::PointCloud current_pointcloud;
 
     current_pointcloud.header.stamp    = stamp;
-    current_pointcloud.header.frame_id = frame_id_;
+    current_pointcloud.header.frame_id = frame_id_; // 点云的参考坐标系
 
     // 获取当前点云
     for (const auto &local : map_->landmarks()) {
+        // 第一个条件判断mappoint_ptr是否为空
+        // 第二个条件判断mappoint是否为离群点
         if (local.second && !local.second->isOutlier()) {
             geometry_msgs::Point32 point;
             point.x = static_cast<float>(local.second->pos().x());
@@ -162,6 +178,10 @@ void DrawerRviz::publishMapPoints() {
     fixed_mappoints_.clear();
 }
 
+/**
+ * @brief 1. 实时发布里程计信息
+ * @brief 2. 实时发布路径，本质上是里程计的集合
+ */
 void DrawerRviz::publishOdometry() {
     std::unique_lock<std::mutex> lock(map_mutex_);
 
@@ -171,9 +191,9 @@ void DrawerRviz::publishOdometry() {
     auto stamp      = ros::Time::now();
 
     // Odometry
-    odometry.header.stamp            = stamp;
-    odometry.header.frame_id         = frame_id_;
-    odometry.pose.pose.position.x    = pose_.t.x();
+    odometry.header.stamp            = stamp; // 时间戳用于纪录消息创建的时间
+    odometry.header.frame_id         = frame_id_; // frame_id_用于指示Pose的参照系
+    odometry.pose.pose.position.x    = pose_.t.x(); 
     odometry.pose.pose.position.y    = pose_.t.y();
     odometry.pose.pose.position.z    = pose_.t.z();
     odometry.pose.pose.orientation.x = quaternion.x();
@@ -183,23 +203,29 @@ void DrawerRviz::publishOdometry() {
     pose_pub_.publish(odometry);
 
     // Path
-    geometry_msgs::PoseStamped pose_stamped;
-    pose_stamped.header.stamp    = stamp;
-    pose_stamped.header.frame_id = frame_id_;
-    pose_stamped.pose            = odometry.pose.pose;
+    geometry_msgs::PoseStamped pose_stamped; 
+    pose_stamped.header.stamp    = stamp; // 时间戳
+    pose_stamped.header.frame_id = frame_id_; // 参考系
+    pose_stamped.pose            = odometry.pose.pose; // 实际位姿
 
-    path_.header.stamp    = stamp;
+    path_.header.stamp    = stamp; // 
     path_.header.frame_id = frame_id_;
     path_.poses.push_back(pose_stamped);
     path_pub_.publish(path_);
 }
 
+/**
+ * @brief 添加新的路标点
+ */ 
 void DrawerRviz::addNewFixedMappoint(Vector3d point) {
     std::unique_lock<std::mutex> lock(map_mutex_);
 
     fixed_mappoints_.push_back(point);
 }
 
+/**
+ * @brief 
+ */
 void DrawerRviz::updateMap(const Eigen::Matrix4d &pose) {
     std::unique_lock<std::mutex> lock(map_mutex_);
     
