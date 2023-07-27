@@ -183,6 +183,7 @@ private:
     }
 
     // Schur消元, 求解 Hp * dx_r = bp
+    // 这段代码通过消去一部分变量，将一个大的线性方程组转化为一个更小的线性方程组
     void schurElimination() {
         // H0 * dx = b0
         Eigen::MatrixXd Hmm = 0.5 * (H0_.block(0, 0, marginalized_size_, marginalized_size_) +
@@ -208,11 +209,14 @@ private:
     }
 
     // 构造增量方程 H * dx = b, 计算 H 和 b
+    // 该方程实际上是由牛顿法推导出来的，H对应Hessian矩阵，dx为增量
     void constructEquation() {
         H0_ = Eigen::MatrixXd::Zero(local_size_, local_size_);
         b0_ = Eigen::VectorXd::Zero(local_size_);
-    
+
+        // 遍历每个因子
         for (const auto &factor : factors_) {
+            // 遍历因子中每个参数块
             for (size_t i = 0; i < factor->parameterBlocks().size(); i++) {
                 // row0为当前处理的参数块的id对应的参数块实际位置(index)
                 int row0 =
@@ -243,9 +247,11 @@ private:
                     if (i == j) {
                         // Hmm, Hrr
                         // 选取H0_从row0，col0开始的，高度为rows，宽度为cols的矩阵
+                        // 构造对应的近似hessian矩阵
                         H0_.block(row0, col0, rows, cols) += jacobian_i.transpose() * jacobian_j;
                     } else {
                         // Hmr, Hrm = Hmr^T
+                        // 如果jacobian_i与jacobian_j不相等
                         H0_.block(row0, col0, rows, cols) += jacobian_i.transpose() * jacobian_j;
                         H0_.block(col0, row0, cols, rows) = H0_.block(row0, col0, rows, cols).transpose();
                     }
@@ -334,7 +340,7 @@ private:
     std::vector<int> remained_block_size_;  // 剩下参数块的大小
     std::vector<int> remained_block_index_; // 剩下参数块的索引
     std::vector<double *> remained_block_data_; // 剩下参数块的数据指针
-    
+
     // local size in total
     int marginalized_size_{0};
     int remained_size_{0};
